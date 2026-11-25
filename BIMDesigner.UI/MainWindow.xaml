@@ -1997,6 +1997,25 @@
                           DisplayMemberPath="Name" SelectionChanged="OnActiveWindowTypeChanged"
                           Visibility="Collapsed" ToolTip="The type new windows are placed as"/>
 
+                <!-- The Window tool as a bay: a whole bay rising out of the wall clicked, instead of one window. -->
+                <StackPanel x:Name="BayOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Bay" VerticalAlignment="Center" Margin="8,0,6,0"/>
+                    <ComboBox x:Name="BayShapePicker" Style="{StaticResource OptionCombo}" MinWidth="80" SelectionChanged="OnBayOptionChanged"
+                              ToolTip="None: a window. Canted: a bay with its sides splayed back to the wall, as on a Victorian terrace. Box: a bay with square sides"/>
+                    <TextBlock Text="Width" VerticalAlignment="Center" Margin="10,0,6,0"/>
+                    <TextBox x:Name="BayWidthBox" MinWidth="60" VerticalAlignment="Center" LostFocus="OnBayOptionChanged" KeyDown="OnBayOptionKey"
+                             ToolTip="Across the bay at the wall's outside face"/>
+                    <TextBlock Text="Out" VerticalAlignment="Center" Margin="10,0,6,0"/>
+                    <TextBox x:Name="BayProjectionBox" MinWidth="60" VerticalAlignment="Center" LostFocus="OnBayOptionChanged" KeyDown="OnBayOptionKey"
+                             ToolTip="How far the bay stands out from the wall's outside face"/>
+                    <TextBlock Text="Storeys" VerticalAlignment="Center" Margin="10,0,6,0"/>
+                    <TextBox x:Name="BayStoreysBox" MinWidth="36" VerticalAlignment="Center" LostFocus="OnBayOptionChanged" KeyDown="OnBayOptionKey"
+                             ToolTip="How many storeys the bay rises, from the one clicked on up"/>
+                    <TextBlock Text="Roof" VerticalAlignment="Center" Margin="10,0,6,0"/>
+                    <ComboBox x:Name="BayRoofPicker" Style="{StaticResource OptionCombo}" MinWidth="70" SelectionChanged="OnBayOptionChanged"
+                              ToolTip="Hipped: a little roof sloping on the bay's three faces. Flat: a flat roof. None: the bay carried on up under the main roof's gable"/>
+                </StackPanel>
+
                 <ComboBox x:Name="RoofWindowTypePicker" Style="{StaticResource OptionCombo}" MinWidth="250"
                           DisplayMemberPath="Name" SelectionChanged="OnActiveRoofWindowTypeChanged"
                           Visibility="Collapsed" ToolTip="The roof window type put in the roof"/>

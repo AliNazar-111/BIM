@@ -103,7 +103,11 @@ public static class ProjectTemplates
         "Round - Galvanized Steel (in)", "Flexible - Insulated (in)", "Rectangular - Galvanized Steel (in)", "PVC DWV - Schedule 40 (ASTM D2665)",
         "Copper - Type L (ASTM B88)", "PEX - CTS SDR 9 (ASTM F876)", "Steel - Schedule 40 Black (ASTM A53)",
         "Parking Space - 9 x 18 ft", "Parking Space - Accessible 96 + 60 in", "Turning Circle - 60 in",
-        "Footing - 16 x 8 in", "Footing - 24 x 10 in", "Pad Footing - 24 x 24 x 12 in"
+        "Footing - 16 x 8 in", "Footing - 24 x 10 in", "Pad Footing - 24 x 24 x 12 in",
+        "Townhouse Area Separation Wall - 2 hr Gypsum Liner Panels", "Unit Separation Wall - 2x4 Studs, 5/8 in Type X Each Side, 1 hr", "Floor - 2x10 Joists, 5/8 in Type X Ceiling, 1 hr",
+        "Roof - Asphalt Shingles on Plywood, 2x8 Rafters", "Roof - Asphalt Shingles on FRT Plywood, 2x8 Rafters",
+        "Wood Frame 2x6 - Board and Batten", "Wood Frame 2x6 - Cedar Shingles", "Wood Frame 2x6 - Stucco",
+        "Double Hung - 36 x 60 in, Louvred Shutters"
     };
 
     private static readonly HashSet<string> EnglishTypes = new(StringComparer.Ordinal)

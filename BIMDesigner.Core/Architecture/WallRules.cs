@@ -206,6 +206,12 @@ public static class WallRules
                         : "Approved Document B (5.11) asks a compartment wall to meet the underside of the roof covering, fire-stopped - attach its top to the roof.");
         }
 
+        // In the US, between the dwelling units of townhouses and two-family dwellings: rated, foundation to roof, parapets; what holds up a floor between them (IRC R302.2, R302.3, round 140).
+        foreach (var (said, rule) in UnitSeparation.Problems(document, wall, type)) Add(said, rule);
+
+        // In the US, its covering near the ground: wood 6 in clear or durable, stucco's weep screed 4 in up; shingles on 1/2 in sheathing (IRC R317.1, R703.7.2.1, R703.6.1, round 141).
+        foreach (var (said, rule) in WallCoverings.Problems(document, wall, type)) Add(said, rule);
+
         // Where a compartment wall meets the roof: BROOF(t4) on a non-combustible deck 1500 either side, or the wall carried up through it (5.12 to 5.15, 8.26 to 8.29, round 135).
         foreach (var (said, rule) in CompartmentRoofs.Problems(document, wall, type)) Add(said, rule);
 

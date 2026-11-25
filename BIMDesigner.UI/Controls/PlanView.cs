@@ -2265,6 +2265,10 @@ public partial class PlanView : FrameworkElement
                 PlaceOpening(raw, isDoor: true);
                 return;
 
+            case PlanTool.Window when Bay.Shape != BayShape.None:
+                PlaceBay(raw);
+                return;
+
             case PlanTool.Window:
                 PlaceOpening(raw, isDoor: false);
                 return;
@@ -5166,6 +5170,36 @@ public partial class PlanView : FrameworkElement
         }
 
         return opening;
+    }
+
+    /// <summary>The bay the Window tool builds instead of a window, from its options bar: none for a window.</summary>
+    public BaySettings Bay { get; set; } = BaySettings.Default;
+
+    /// <summary>
+    /// A click with the Window tool set to a bay: a whole bay rising out of the outside wall clicked - its walls, windows, floors and roof - as
+    /// one step (round 139). Public so it can be driven from tests.
+    /// </summary>
+    public bool PlaceBay(Point2D raw)
+    {
+        if (Document is null) return false;
+        if (HitTestWall(raw) is not { } wall)
+        {
+            HintChanged?.Invoke(this, "Click on an outside wall where the middle of the bay should be.");
+            return false;
+        }
+
+        if (Bays.Add(Document, wall, raw, Bay, ActiveWindowTypeId, out var problem) is not { } command)
+        {
+            HintChanged?.Invoke(this, problem ?? string.Empty);
+            return false;
+        }
+
+        // Already done: recorded as one step.
+        History?.Record(command);
+        HintChanged?.Invoke(this, $"{EnumText.Humanise(Bay.Shape)} bay added, {Bay.Storeys} storey{(Bay.Storeys == 1 ? string.Empty : "s")} high - its walls, windows, floors and roof are ordinary elements now, to change as any other; Undo takes it all away.");
+        ModelChanged?.Invoke(this, EventArgs.Empty);
+        InvalidateVisual();
+        return true;
     }
 
     private void PlaceOpening(Point2D raw, bool isDoor, Wall? on = null, double? sillHeight = null)

@@ -397,7 +397,8 @@ public static class ElementCopy
         {
             Kind = system.Kind, Name = system.Name, SourceId = system.SourceId, Use = system.Use,
             FlowTemperature = system.FlowTemperature, ReturnTemperature = system.ReturnTemperature, Breaker = system.Breaker, Curve = system.Curve,
-            Rcd = system.Rcd, ArcFault = system.ArcFault, Cable = system.Cable, Method = system.Method, Grouped = system.Grouped, CableLength = system.CableLength, Phase = system.Phase
+            Rcd = system.Rcd, ArcFault = system.ArcFault, Cable = system.Cable, Method = system.Method, Grouped = system.Grouped, CableLength = system.CableLength, Phase = system.Phase,
+            FireResisting = system.FireResisting
         }, system.Members), system),
         Beam beam => CarryCommon(new Beam
         {

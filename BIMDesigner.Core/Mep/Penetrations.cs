@@ -65,7 +65,7 @@ public static class Penetrations
                 var along = (width + 2 * Gap) / slant + (type?.Width ?? 0) * Math.Sqrt(1 - slant * slant) / slant;
                 var fire = FireSeparating.Of(document, wall);
                 var hole = new Penetration(service, wall, new Point3D(at.X, at.Y, z), along, height + 2 * Gap, round && slant > 0.99,
-                    type?.Separating == true || fire is not null, Doors.FireMinutes(type?.FireRating ?? string.Empty)) { Element = fire?.What, ShaftEnclosure = fire?.Shaft == true };
+                    type?.Separating == true || fire is not null || UnitSeparation.Separates(document, wall), Doors.FireMinutes(type?.FireRating ?? string.Empty)) { Element = fire?.What, ShaftEnclosure = fire?.Shaft == true };
                 yield return Cut(document, hole);
             }
 
@@ -81,7 +81,7 @@ public static class Penetrations
                 var type = document.FindType<SlabType>(floor.TypeId);
                 var fire = FireSeparating.Of(document, floor);
                 var hole = new Penetration(service, floor, new Point3D(at.X, at.Y, middle), width + 2 * Gap, height + 2 * Gap, round,
-                    type?.Separating == true || fire is not null, Doors.FireMinutes(type?.FireRating ?? string.Empty)) { Element = fire };
+                    type?.Separating == true || fire is not null || UnitSeparation.Separates(document, floor), Doors.FireMinutes(type?.FireRating ?? string.Empty)) { Element = fire };
                 yield return Cut(document, hole);
             }
     }
@@ -250,7 +250,7 @@ public static class Penetrations
             if (us)
             {
                 if (pipe.Seal == PipeSeal.None)
-                    yield return new MepProblem(pipe, $"it passes through the dwelling unit separation unsealed - IRC R302.4.1.2 protects a penetration with a listed firestop system (ASTM E814 or UL 1479)");
+                    yield return new MepProblem(pipe, $"it passes through the {(hole.Through is Floor ? "floor" : "wall")} between dwelling units unsealed - the IRC (R302.4.1) protects a penetration as tested in the rated assembly, or with a listed firestop system (ASTM E814 or UL 1479) whose F rating is the assembly's at least");
                 continue;
             }
 

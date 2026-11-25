@@ -747,6 +747,8 @@ public partial class MainWindow : Window
         WallOpeningOptions.Visibility = tool == PlanTool.WallOpening ? Visibility.Visible : Visibility.Collapsed;
         DormerOptions.Visibility = tool == PlanTool.Dormer ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.Dormer) ShowDormerOptions();
+        BayOptions.Visibility = tool == PlanTool.Window ? Visibility.Visible : Visibility.Collapsed;
+        if (tool == PlanTool.Window) ShowBayOptions();
         ShaftOptions.Visibility = tool == PlanTool.Shaft ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.Shaft) ShowShaftOptions();
         FaceOpeningOptions.Visibility = tool == PlanTool.FaceOpening ? Visibility.Visible : Visibility.Collapsed;
@@ -1379,6 +1381,45 @@ public partial class MainWindow : Window
         };
 
         ShowDormerOptions();
+    }
+
+    /// <summary>The Window tool's bay options, as the plan has them.</summary>
+    private void ShowBayOptions()
+    {
+        _loadingOptions = true;
+        var bay = Plan.Bay;
+        BayShapePicker.ItemsSource ??= EnumText.Choices<BayShape>();
+        BayShapePicker.SelectedItem = EnumText.Humanise(bay.Shape);
+        BayRoofPicker.ItemsSource ??= EnumText.Choices<BayRoof>();
+        BayRoofPicker.SelectedItem = EnumText.Humanise(bay.Roof);
+        BayWidthBox.Text = Units.FormatLength(bay.Width);
+        BayProjectionBox.Text = Units.FormatLength(bay.Projection);
+        BayStoreysBox.Text = bay.Storeys.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        _loadingOptions = false;
+    }
+
+    private void OnBayOptionChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+        static double? Read(string text) => ParameterFormatter.TryParse(ParameterDataType.Length, text, out var value) && value is double number ? number : null;
+        var bay = Plan.Bay;
+        Plan.Bay = bay with
+        {
+            Shape = BayShapePicker.SelectedItem is string shape && EnumText.TryParse<BayShape>(shape, out var picked) ? picked : bay.Shape,
+            Roof = BayRoofPicker.SelectedItem is string roof && EnumText.TryParse<BayRoof>(roof, out var roofed) ? roofed : bay.Roof,
+            Width = Read(BayWidthBox.Text) is { } width and >= 1000 and <= 8000 ? width : bay.Width,
+            Projection = Read(BayProjectionBox.Text) is { } depth and >= 200 and <= 3000 ? depth : bay.Projection,
+            Storeys = int.TryParse(BayStoreysBox.Text, out var storeys) && storeys is >= 1 and <= 10 ? storeys : bay.Storeys
+        };
+        ShowBayOptions();
+    }
+
+    private void OnBayOptionKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        OnBayOptionChanged(sender, e);
+        Plan.Focus();
+        e.Handled = true;
     }
 
     private void OnDormerOptionKey(object sender, KeyEventArgs e)

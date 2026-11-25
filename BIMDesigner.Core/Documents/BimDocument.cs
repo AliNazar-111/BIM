@@ -534,8 +534,11 @@ public sealed class BimDocument
                      FasciaType or GutterType or SoffitType or EaveType => !roofEdgeTypes.Contains(type.Name),
                      RoofType => !roofTypes.Contains(type.Name),
                      CeilingType { Name: "Ceiling - Plasterboard under 270mm Mineral Wool" or "Ceiling - Soffit Board, uPVC 10mm" or "Ceiling - Acoustic Mineral Fibre Tile 15mm" or "Ceiling - Two Layers Plasterboard under 200mm Mineral Wool" } => !_types.Values.Any(own => string.Equals(own.Name, type.Name, StringComparison.OrdinalIgnoreCase)),
-                     WallType { Log: not null } or WallType { Name: "Stud Wall - Acoustic 125mm" or "Timber Frame - Brick Clad 315mm" or "Timber Frame - Siding 183mm" or "Party Wall - Cavity Blockwork 300mm" or "Party Wall - Dense Cavity Blockwork 300mm" or "Separating Wall - Dense Blockwork 215mm" } => !wallTypeNames.Contains(type.Name),
-                     FloorType { Name: "Floor - Separating Slab, Floating 278mm" } => !_types.Values.Any(own => string.Equals(own.Name, type.Name, StringComparison.OrdinalIgnoreCase)),
+                     WallType { Log: not null } or WallType { Name: "Stud Wall - Acoustic 125mm" or "Timber Frame - Brick Clad 315mm" or "Timber Frame - Siding 183mm" or "Party Wall - Cavity Blockwork 300mm" or "Party Wall - Dense Cavity Blockwork 300mm" or "Separating Wall - Dense Blockwork 215mm"
+                         or "Townhouse Area Separation Wall - 2 hr Gypsum Liner Panels" or "Unit Separation Wall - 2x4 Studs, 5/8 in Type X Each Side, 1 hr"
+                         or "Wood Frame 2x6 - Board and Batten" or "Wood Frame 2x6 - Cedar Shingles" or "Wood Frame 2x6 - Stucco"
+                         or "Half-Timbered - Render on Block 330mm" } => !wallTypeNames.Contains(type.Name),
+                     FloorType { Name: "Floor - Separating Slab, Floating 278mm" or "Floor - 2x10 Joists, 5/8 in Type X Ceiling, 1 hr" } => !_types.Values.Any(own => string.Equals(own.Name, type.Name, StringComparison.OrdinalIgnoreCase)),
                      RoofWindowType => !roofWindowTypes.Contains(type.Name),
                      FootingType => !footingTypes.Contains(type.Name),
                      ChimneyType => !chimneyTypes.Contains(type.Name),
@@ -3043,6 +3046,159 @@ public sealed class BimDocument
             CoarseScaleFillColour = ColourRgb.FromHex("D9C38A")
         };
 
+        // US homes under the IRC (round 140): the walls and floors between dwelling units (R302.2, R302.3). A townhouse's common wall rated 2
+        // hours from both sides - an area separation wall, two layers of 1 in gypsum liner panel in steel H-studs between the units' own 2x4
+        // walls, as gypsum makers list it; a 1-hour wall of 2x4 studs with 5/8 in Type X gypsum board each side, for a duplex, a sprinklered
+        // townhouse's common wall or one of a double wall; a 1-hour floor of 2x10 joists under 3/4 in plywood, its ceiling 5/8 in Type X; and an
+        // asphalt shingle roof, Class A as its listing has it, on plywood - or on fire-retardant-treated plywood, as R302.2.4 asks 4 ft either
+        // side of a townhouse's common wall that carries no parapet.
+        var typeX = new Material("Gypsum Board, Type X 5/8 in")
+        {
+            Density = 720, ThermalConductivity = 0.25,
+            SurfaceColour = ColourRgb.FromHex("E8E4DA"), CutColour = ColourRgb.FromHex("D8D4CA"), CostPerCubicMetre = 190m
+        };
+        var linerPanel = new Material("Gypsum Liner Panel, 1 in")
+        {
+            Density = 800, ThermalConductivity = 0.25,
+            SurfaceColour = ColourRgb.FromHex("DCD8CC"), CutColour = ColourRgb.FromHex("CCC8BC"), CostPerCubicMetre = 230m
+        };
+        var plywood = new Material("Plywood Sheathing")
+        {
+            Density = 550, ThermalConductivity = 0.13,
+            SurfaceColour = ColourRgb.FromHex("D2B48C"), CutColour = ColourRgb.FromHex("C2A47C"), CostPerCubicMetre = 700m
+        };
+        var frtPlywood = new Material("Plywood, Fire-Retardant-Treated")
+        {
+            Density = 600, ThermalConductivity = 0.13,
+            SurfaceColour = ColourRgb.FromHex("C9B98F"), CutColour = ColourRgb.FromHex("B9A97F"), CostPerCubicMetre = 1100m
+        };
+        var shingles = new Material("Asphalt Shingles")
+        {
+            Density = 1100, ThermalConductivity = 0.7, RoofCovering = "Class A",
+            SurfaceColour = ColourRgb.FromHex("4A4A4F"), CutColour = ColourRgb.FromHex("3C3C40"), CostPerCubicMetre = 1500m
+        };
+        foreach (var material in new[] { typeX, linerPanel, plywood, frtPlywood, shingles }) document.AddMaterial(material);
+        var areaSeparationWall = new WallType("Townhouse Area Separation Wall - 2 hr Gypsum Liner Panels", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Finish1, plasterboard.Id, 12.7),
+            new MaterialLayer(LayerFunction.Structure, mineralWool.Id, 89),
+            new MaterialLayer(LayerFunction.ThermalAir, cavity.Id, 19, wraps: false),
+            new MaterialLayer(LayerFunction.Structure, linerPanel.Id, 25.4),
+            new MaterialLayer(LayerFunction.Structure, linerPanel.Id, 25.4),
+            new MaterialLayer(LayerFunction.ThermalAir, cavity.Id, 19, wraps: false),
+            new MaterialLayer(LayerFunction.Structure, mineralWool.Id, 89),
+            new MaterialLayer(LayerFunction.Finish2, plasterboard.Id, 12.7)))
+        {
+            Function = WallFunction.Interior, Separating = true, TypeMark = "ASW1", AssemblyCode = "C1010", FireRating = "2 hr", AcousticRating = 57, Cost = 170m,
+            Description = "IRC R302.2.2: a townhouse's common wall rated 2 hours from both sides - two layers of 1 in gypsum liner panel in steel H-studs between the units' own 2x4 walls",
+            CoarseScaleFillColour = ColourRgb.FromHex("CFC9BA"), WrapAtEnds = WallWrapping.Exterior
+        };
+        var unitSeparationWall = new WallType("Unit Separation Wall - 2x4 Studs, 5/8 in Type X Each Side, 1 hr", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Finish1, typeX.Id, 15.9),
+            new MaterialLayer(LayerFunction.Structure, mineralWool.Id, 89),
+            new MaterialLayer(LayerFunction.Finish2, typeX.Id, 15.9)))
+        {
+            Function = WallFunction.Interior, Separating = true, TypeMark = "USW1", AssemblyCode = "C1010", FireRating = "1 hr", AcousticRating = 45, Cost = 85m,
+            Description = "IRC R302.3: a wall between the units of a two-family dwelling rated 1 hour - or one of a townhouse's double walls (R302.2.1), or its common wall where sprinklered (R302.2.2)",
+            CoarseScaleFillColour = ColourRgb.FromHex("E1DCCF"), WrapAtEnds = WallWrapping.Exterior
+        };
+        var unitSeparationFloor = new FloorType("Floor - 2x10 Joists, 5/8 in Type X Ceiling, 1 hr", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Finish1, plywood.Id, 19),
+            new MaterialLayer(LayerFunction.Structure, cavity.Id, 235),
+            new MaterialLayer(LayerFunction.Finish2, typeX.Id, 15.9)))
+        {
+            TypeMark = "UF1", AssemblyCode = "B1010", Function = SlabFunction.Structural, FireRating = "1 hr", Separating = true, AcousticRating = 50, Cost = 95m,
+            Description = "IRC R302.3: the floor between the units of a two-family dwelling, rated 1 hour",
+            CoarseScaleFillColour = ColourRgb.FromHex("C8B490")
+        };
+        var shingleRoof = new RoofType("Roof - Asphalt Shingles on Plywood, 2x8 Rafters", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Finish1, shingles.Id, 6),
+            new MaterialLayer(LayerFunction.Substrate, plywood.Id, 15),
+            new MaterialLayer(LayerFunction.Structure, softwood.Id, 184)))
+        {
+            TypeMark = "UR1", AssemblyCode = "B1020", Function = SlabFunction.Structural, Cost = 95m, CoarseScaleFillColour = ColourRgb.FromHex("5A5A60")
+        };
+        var frtShingleRoof = new RoofType("Roof - Asphalt Shingles on FRT Plywood, 2x8 Rafters", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Finish1, shingles.Id, 6),
+            new MaterialLayer(LayerFunction.Substrate, frtPlywood.Id, 15),
+            new MaterialLayer(LayerFunction.Structure, softwood.Id, 184)))
+        {
+            TypeMark = "UR2", AssemblyCode = "B1020", Function = SlabFunction.Structural, Cost = 110m, CoarseScaleFillColour = ColourRgb.FromHex("5A5A60"),
+            Description = "IRC R302.2.4: a Class A covering on a fire-retardant-treated deck, as asked 4 ft either side of a townhouse's common wall without a parapet"
+        };
+
+        // US homes' outside walls (round 141), 2x6 studs at 16 in with mineral wool between, 1/2 in plywood sheathing and 1/2 in gypsum board inside:
+        // board and batten - 1x12 pine boards and 1x3 battens over their joints, painted; cedar shingles, 5 in to the weather (R703.6.1 over 1/2
+        // in wood-based sheathing); and three-coat stucco 7/8 in thick on metal lath (R703.7, ASTM C926).
+        var boardAndBatten = new Material("Board and Batten, Painted Pine")
+        {
+            Density = 500, ThermalConductivity = 0.13,
+            SurfaceColour = ColourRgb.FromHex("E9E6DC"), CutColour = ColourRgb.FromHex("C2A27A"), CostPerCubicMetre = 900m
+        };
+        var cedarShingles = new Material("Cedar Shingles")
+        {
+            Density = 380, ThermalConductivity = 0.11,
+            SurfaceColour = ColourRgb.FromHex("A57A52"), CutColour = ColourRgb.FromHex("956A42"), CostPerCubicMetre = 1800m
+        };
+        var stucco = new Material("Stucco, Three-Coat Portland Cement")
+        {
+            Density = 1860, ThermalConductivity = 0.72,
+            SurfaceColour = ColourRgb.FromHex("E3D7C1"), CutColour = ColourRgb.FromHex("C9BDA7"), CostPerCubicMetre = 260m
+        };
+        foreach (var material in new[] { boardAndBatten, cedarShingles, stucco }) document.AddMaterial(material);
+        WallType UsFrame(string name, Material face, double thickness, string mark, decimal cost, string colour, string description) =>
+            new(name, new CompoundStructure(
+                new MaterialLayer(LayerFunction.Finish1, face.Id, thickness),
+                new MaterialLayer(LayerFunction.Substrate, plywood.Id, 12),
+                new MaterialLayer(LayerFunction.Structure, mineralWool.Id, 140),
+                new MaterialLayer(LayerFunction.Finish2, plasterboard.Id, 12.7)))
+            {
+                Function = WallFunction.Exterior, TypeMark = mark, AssemblyCode = "B2010", AcousticRating = 40, Cost = cost, HeatTransferCoefficient = 0.25,
+                CoarseScaleFillColour = ColourRgb.FromHex(colour), WrapAtEnds = WallWrapping.Exterior, Description = description
+            };
+        var battenWall = UsFrame("Wood Frame 2x6 - Board and Batten", boardAndBatten, 25, "EW4", 135m, "E9E6DC",
+            "2x6 studs, 1/2 in plywood, 1x12 boards with 1x3 battens over their joints: clear of the ground by 6 in, or treated (IRC R317.1)");
+        var shingleWall = UsFrame("Wood Frame 2x6 - Cedar Shingles", cedarShingles, 13, "EW5", 150m, "A57A52",
+            "2x6 studs, 1/2 in plywood, red cedar shingles 5 in to the weather over a water-resistive barrier (IRC R703.6)");
+        var stuccoWall = UsFrame("Wood Frame 2x6 - Stucco", stucco, 22, "EW6", 140m, "E3D7C1",
+            "2x6 studs, 1/2 in plywood, three-coat stucco 7/8 in on metal lath, its weep screed 4 in over the earth (IRC R703.7)");
+
+        // Period looks (round 142): half-timbering - black oak boards on white render over block, a mock Tudor upper storey, or a Tudor
+        // revival's - and a roof of curved clay tiles, Spanish or mission, on insulated rafters.
+        var halfTimbering = new Material("Half-Timbering, Black Oak on White Render")
+        {
+            Density = 1600, ThermalConductivity = 0.6,
+            SurfaceColour = ColourRgb.FromHex("EEE8DA"), CutColour = ColourRgb.FromHex("D6CFBF"), CostPerCubicMetre = 900m
+        };
+        var barrelTile = new Material("Roof Tile, Clay Barrel (Spanish)")
+        {
+            Density = 1900, ThermalConductivity = 1.0,
+            SurfaceColour = ColourRgb.FromHex("B8613A"), CutColour = ColourRgb.FromHex("A85530"), CostPerCubicMetre = 2400m
+        };
+        foreach (var material in new[] { halfTimbering, barrelTile }) document.AddMaterial(material);
+        var halfTimberedWall = new WallType("Half-Timbered - Render on Block 330mm", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Finish1, halfTimbering.Id, 30),
+            new MaterialLayer(LayerFunction.Structure, block.Id, 100),
+            new MaterialLayer(LayerFunction.ThermalAir, insulation.Id, 50, wraps: false),
+            new MaterialLayer(LayerFunction.Structure, aircrete.Id, 135),
+            new MaterialLayer(LayerFunction.Finish2, plaster.Id, 15)))
+        {
+            Function = WallFunction.Exterior, TypeMark = "EW7", AssemblyCode = "B2010", FireRating = "60 min", AcousticRating = 50, HeatTransferCoefficient = 0.26, Cost = 175m,
+            Description = "Black oak boards on white render, a storey high, over a block cavity wall: a mock Tudor upper storey",
+            CoarseScaleFillColour = ColourRgb.FromHex("EEE8DA"), WrapAtEnds = WallWrapping.Exterior
+        };
+        var barrelRoof = new RoofType("Roof - Clay Barrel Tiles on Insulated Rafters 270mm", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Finish1, barrelTile.Id, 60),
+            new MaterialLayer(LayerFunction.Structure, insulatedRafters.Id, 150),
+            new MaterialLayer(LayerFunction.ThermalAir, insulation.Id, 50),
+            new MaterialLayer(LayerFunction.Finish2, plasterboard.Id, 12.5)))
+        {
+            TypeMark = "R7", AssemblyCode = "B1020", Function = SlabFunction.Structural, FireRating = "30 min",
+            HeatTransferCoefficient = 0.16, Cost = 210m, CoarseScaleFillColour = ColourRgb.FromHex("B8613A"),
+            Description = "Curved clay tiles - Spanish or mission, pans and covers - on insulated rafters"
+        };
+        var shutteredDoubleHung = usDoubleHung.Duplicate("Double Hung - 36 x 60 in, Louvred Shutters");
+        (shutteredDoubleHung.TypeMark, shutteredDoubleHung.Shutters, shutteredDoubleHung.ShutterFinish, shutteredDoubleHung.Cost) = ("W19", WindowShutters.Louvred, "Painted Black", 760m);
+
         // Slab edges: a thickened edge to a ground-bearing slab, an edge beam, a kerb along a floor's edge.
         var thickenedEdge = new SlabEdgeType("Slab Edge - Thickened 450 x 450")
             { Shape = SlabEdgeShape.Thickened, Width = 450, Depth = 450, FootWidth = 250, MaterialId = concrete.Id, TypeMark = "SE1", Cost = 85m };
@@ -3077,7 +3233,9 @@ public sealed class BimDocument
                      tiltAndTurn, doubleHung, louvred, bay, rooflight, threeLight, fanlights, fixedFanlight, twinDoubleHung, usDoubleHung, usCasement,
                      screedFloor, timberFloor, plasterboardCeiling, flatRoof, pitchedRoof,
                      logRound, logD, logSquare, acousticPartition, timberFrame, sidedFrame, warmRoof, loftCeiling, plainTileRoof, interlockingRoof, slopedGlazing,
-                     thickenedEdge, edgeBeam, kerb, partyWall, soffitCeiling, densePartyWall, separatingFloor, acousticCeiling, solidSeparating, doubleBoardCeiling, shaftWall
+                     thickenedEdge, edgeBeam, kerb, partyWall, soffitCeiling, densePartyWall, separatingFloor, acousticCeiling, solidSeparating, doubleBoardCeiling, shaftWall,
+                     areaSeparationWall, unitSeparationWall, unitSeparationFloor, shingleRoof, frtShingleRoof, battenWall, shingleWall, stuccoWall,
+                     halfTimberedWall, barrelRoof, shutteredDoubleHung
                  })
         {
             document.AddType(type);

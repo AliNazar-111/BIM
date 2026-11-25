@@ -32,6 +32,16 @@ public static class SurfacePatterns
 
         // Standing seams at 500 mm centres, 25 mm wide.
         SurfacePattern.StandingSeam => (500, 0, 25, null),
+
+        // Board and batten: battens 2 1/2 in (64) wide at 12 in (305) centres, their shadow 12 wide; cedar shingles 190 wide on the average,
+        // laid 5 in (127) to the weather, 5 apart (IRC R703.6.1 asks 1/8 to 1/4 in) (round 141).
+        SurfacePattern.BoardAndBatten => (305, 64, 12, null),
+        SurfacePattern.Shingles => (190, 127, 5, null),
+
+        // Half-timbering: panels 900 wide, a storey 3 m high, its timbers 180 wide and nearly black; curved clay tiles a pan and a cover 230
+        // across, 330 to the weather (round 142).
+        SurfacePattern.HalfTimbered => (900, 3000, 180, new ColourRgb(0x2B, 0x22, 0x1C)),
+        SurfacePattern.BarrelTiles => (230, 330, 0, null),
         _ => (0, 0, 0, null)
     };
 
@@ -50,6 +60,15 @@ public static class SurfacePatterns
 
         if (Has("glass", "glazing")) return Standard(SurfacePattern.None, colour, 0.04);
         if (Has("insulation", "cavity", "wool", "fire stop", "membrane", "pir ", "vapour")) return Standard(SurfacePattern.None, colour);
+
+        // Stucco; board and batten; shingles and shakes - asphalt ones a roof's 3-tab strip cut to 333 tabs, 143 to the weather - not the
+        // shingle of a beach, which is gravel (round 141).
+        if (Has("half-timber", "half timber", "tudor")) return Standard(SurfacePattern.HalfTimbered, colour);
+        if (Has("tile") && Has("barrel", "spanish", "mission", "curved")) return Standard(SurfacePattern.BarrelTiles, colour);
+        if (Has("stucco", "exterior plaster")) return Standard(SurfacePattern.Stucco, colour);
+        if (Has("batten") && Has("board")) return Standard(SurfacePattern.BoardAndBatten, colour);
+        if (Has("shingle") && Has("asphalt", "composition", "roofing")) return Standard(SurfacePattern.Shingles, colour) with { UnitLength = 333, UnitHeight = 143, JointWidth = 3 };
+        if (Has("shake") || Has("shingle") && Has("cedar", "wood", "siding", "redwood")) return Standard(SurfacePattern.Shingles, colour);
         if (Has("composite", "decking")) return Standard(SurfacePattern.Boards, colour);
         if (Has("pvc", "plastic", "upvc")) return Standard(SurfacePattern.None, colour, 0.04);
         if (Has("paint", "emulsion", "plasterboard", "plaster", "render", "fibre cement")) return Standard(SurfacePattern.Render, colour, Has("gloss") ? 0.06 : 0);

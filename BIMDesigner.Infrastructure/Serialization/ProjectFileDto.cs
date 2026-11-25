@@ -2065,6 +2065,10 @@ internal sealed class WindowTypeDto : OpeningTypeDto
     public double TransomHeight { get; set; }
     public string? Fanlight { get; set; }
     public double? MullionWidth { get; set; }
+
+    /// <summary>Its shutters and their finish; absent in files from before shutters, and where it has none.</summary>
+    public string? Shutters { get; set; }
+    public string? ShutterFinish { get; set; }
 }
 
 /// <summary>
@@ -2873,6 +2877,9 @@ internal sealed class MepSystemDto
 
     /// <summary>A circuit's phase on a three-phase board, 1 to 3; missing where shared out.</summary>
     public int? Phase { get; set; }
+
+    /// <summary>Whether a circuit is wired in fire-resisting cable, PH 30 (Approved Document B Volume 2 5.30a); none for not.</summary>
+    public bool? FireResisting { get; set; }
 
     public string Mark { get; set; } = string.Empty;
     public string Comments { get; set; } = string.Empty;

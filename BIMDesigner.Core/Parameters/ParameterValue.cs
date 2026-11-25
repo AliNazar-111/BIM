@@ -102,8 +102,11 @@ public sealed class ParameterValue
         IReadOnlyList<string> allowedValues) =>
         new(definition, () => get(), raw =>
         {
-            var text = raw?.ToString();
-            return text is not null && allowedValues.Contains(text) && trySet(text);
+            // Typed rather than picked, a choice is taken whatever its capitals, as the list spells it: "Semi-detached House" is "Semi-detached house".
+            var text = raw?.ToString()?.Trim();
+            if (text is null) return false;
+            var chosen = allowedValues.Contains(text) ? text : allowedValues.FirstOrDefault(value => string.Equals(value, text, StringComparison.OrdinalIgnoreCase));
+            return chosen is not null && trySet(chosen);
         })
         {
             AllowedValues = allowedValues

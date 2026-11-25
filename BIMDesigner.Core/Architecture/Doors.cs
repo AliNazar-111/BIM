@@ -49,12 +49,27 @@ public static class Doors
             ? Math.Max(0, type.Width - 2 * Frame - 2 * Leaf)
             : ClearWidth(type);
 
-    /// <summary>A rating's minutes, as it is written: "30 min", "FD30", "E 30 Sa" all 30; none, 0.</summary>
+    /// <summary>
+    /// A rating's minutes, as it is written: "30 min", "FD30", "E 30 Sa" all 30; in hours as the US writes them, "1 hr", "2-hour", "1/2 hour",
+    /// "1.5 h" 60, 120, 30 and 90 (round 140); none, 0.
+    /// </summary>
     public static int FireMinutes(string rating)
     {
+        if (string.IsNullOrWhiteSpace(rating)) return 0;
+        if (HoursWritten.Match(rating) is { Success: true } hours)
+        {
+            var whole = double.Parse(hours.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            var value = hours.Groups[2].Success ? whole / double.Parse(hours.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture) : whole;
+            if (value > 0 && double.IsFinite(value)) return (int)Math.Round(value * 60);
+        }
+
         var digits = new string(rating.SkipWhile(c => !char.IsDigit(c)).TakeWhile(char.IsDigit).ToArray());
         return int.TryParse(digits, out var minutes) ? minutes : 0;
     }
+
+    /// <summary>A rating in hours: a number or a fraction, then h, hr, hrs, hour or hours.</summary>
+    private static readonly System.Text.RegularExpressions.Regex HoursWritten =
+        new(@"(\d+(?:\.\d+)?)(?:\s*/\s*(\d+))?\s*-?\s*(?:h|hr|hrs|hour|hours)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     /// <summary>Whether a door leads outside: an exterior door's type, or in an outside wall.</summary>
     public static bool External(BimDocument document, Door door, DoorType type) =>

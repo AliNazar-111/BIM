@@ -139,7 +139,9 @@ public class CompoundStructureTests
         var document = BimDocument.CreateDefault();
         var types = document.TypesOf<WallType>().ToList();
 
-        Assert.Equal(11, types.Count(type => type.Log is null));
+        // Seventeen: the US's 2-hour area separation wall and 1-hour unit separation wall among them (round 140), its board and batten,
+        // cedar shingle and stucco walls (round 141), and a half-timbered one (round 142).
+        Assert.Equal(17, types.Count(type => type.Log is null));
         Assert.Equal(3, types.Count(type => type.Log is not null));
         Assert.All(types, type => Assert.True(type.Width > 0));
         Assert.All(types, type => Assert.NotEmpty(type.Structure.Layers));

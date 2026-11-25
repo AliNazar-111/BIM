@@ -14,7 +14,7 @@ public class OpeningModelTests
     private static (BimDocument Document, Wall Wall, Opening Opening, double WallHalf) WallWith(OpeningType type)
     {
         var document = BimDocument.CreateDefault();
-        var wallType = document.TypesOf<WallType>().Single(t => t.Name.StartsWith("Exterior"));
+        var wallType = document.TypesOf<WallType>().Single(t => t.Name == "Exterior - Brick on Block 330mm");
         var wall = new Wall
         {
             Start = new Point2D(0, 0), End = new Point2D(6000, 0),

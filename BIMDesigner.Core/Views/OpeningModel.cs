@@ -86,6 +86,19 @@ internal static class OpeningModel
         meshes.AddRange(builder.Meshes);
     }
 
+    /// <summary>What shutters finished so read as: their paint by its colour's name - black, green, blue, red, grey, white - else their timber's.</summary>
+    public static ColourRgb ShutterColourOf(string finish)
+    {
+        var name = finish.ToLowerInvariant();
+        if (name.Contains("black")) return new ColourRgb(0x23, 0x25, 0x27);
+        if (name.Contains("green")) return new ColourRgb(0x2E, 0x4A, 0x35);
+        if (name.Contains("blue")) return new ColourRgb(0x2C, 0x3E, 0x5C);
+        if (name.Contains("red")) return new ColourRgb(0x7A, 0x2A, 0x22);
+        if (name.Contains("grey") || name.Contains("gray")) return new ColourRgb(0x6B, 0x6E, 0x70);
+        if (name.Contains("white")) return new ColourRgb(0xEE, 0xEE, 0xEA);
+        return ColourOf(finish, new ColourRgb(0x23, 0x25, 0x27));
+    }
+
     /// <summary>What a frame or door panel made of this reads as.</summary>
     public static ColourRgb ColourOf(string material, ColourRgb fallback)
     {
@@ -117,6 +130,7 @@ internal static class OpeningModel
         private readonly Mesh3D _glass;
         private readonly Mesh3D _metal;
         private readonly Mesh3D _hinges;
+        private readonly Mesh3D _shutters;
 
         public Builder(
             Wall wall, WallType wallType, Opening opening, OpeningType type,
@@ -154,6 +168,8 @@ internal static class OpeningModel
                 : new Mesh3D(opening.Id, opening.LevelId, MeshKind.Glazing, Glass, "Glazing") { OwnerId = owner };
             _metal = new Mesh3D(opening.Id, opening.LevelId, MeshKind.DoorLeaf, Metal, "Hardware") { OwnerId = owner };
             _hinges = new Mesh3D(opening.Id, opening.LevelId, MeshKind.DoorLeaf, Metal, "Hinges") { OwnerId = owner };
+            _shutters = new Mesh3D(opening.Id, opening.LevelId, MeshKind.DoorLeaf,
+                ShutterColourOf(type is WindowType shuttered ? shuttered.ShutterFinish : string.Empty), "Shutters") { OwnerId = owner };
         }
 
         public double Width { get; }
@@ -190,7 +206,7 @@ internal static class OpeningModel
         /// </summary>
         private double SwingSide(bool hingeAtStart) => Facing * (hingeAtStart ? 1 : -1);
 
-        public IEnumerable<Mesh3D> Meshes => new[] { _frame, _leaf, _glass, _metal, _hinges }.Where(m => !m.IsEmpty);
+        public IEnumerable<Mesh3D> Meshes => new[] { _frame, _leaf, _glass, _metal, _hinges, _shutters }.Where(m => !m.IsEmpty);
 
         // ---- doors -------------------------------------------------------------------
 
@@ -821,6 +837,7 @@ internal static class OpeningModel
             Box(_frame, f, Width - f, -depth, depth, _head - f, _head);
             Box(_frame, f, Width - f, -depth, depth, _sill, _sill + f);
             Box(_frame, -40, Width + 40, 0, WallHalf + 45, _sill - 35, _sill);
+            if (window.Shutters != WindowShutters.None) Shutters(window.Shutters);
 
             var (u0, u1, z0, z1) = (f, Width - f, _sill + f, _head - f);
             if (!WindowLights.Divided(window))
@@ -846,6 +863,56 @@ internal static class OpeningModel
                 var (a, b) = (Mirrored(light.From), Mirrored(light.To));
                 Light(window, light.Operation, Math.Min(a, b), Math.Max(a, b), Up(light.Bottom), Up(light.Top), whole: false,
                     atStart: light.HingeAtStart != _opening.FlipHand);
+            }
+        }
+
+        /// <summary>
+        /// Shutters either side of the window on the wall's outside face, 40 off its opening, each half its width so the two would close over
+        /// it, sill to head (round 142): louvred - stiles, top, middle and bottom rails, slats between over a back; panelled - a frame with two
+        /// panels set in; board - upright boards with two battens across.
+        /// </summary>
+        private void Shutters(WindowShutters kind)
+        {
+            const double gap = 40, thick = 28, stile = 50, rail = 60;
+            var half = Width / 2;
+            var face = WallHalf + 5;
+            var middle = (_sill + _head) / 2;
+            foreach (var (u0, u1) in new[] { (-gap - half, -gap), (Width + gap, Width + gap + half) })
+            {
+                void Frame()
+                {
+                    Box(_shutters, u0, u0 + stile, face, face + thick, _sill, _head);
+                    Box(_shutters, u1 - stile, u1, face, face + thick, _sill, _head);
+                    foreach (var z in new[] { _sill, middle - rail / 2, _head - rail })
+                        Box(_shutters, u0 + stile, u1 - stile, face, face + thick, z, z + rail);
+                }
+
+                switch (kind)
+                {
+                    case WindowShutters.Louvred:
+                        Frame();
+                        Box(_shutters, u0 + stile, u1 - stile, face, face + 4, _sill + rail, _head - rail);
+                        for (var z = _sill + rail + 8; z + 22 <= _head - rail; z += 38)
+                            if (z + 22 <= middle - rail / 2 || z >= middle + rail / 2)
+                                Box(_shutters, u0 + stile, u1 - stile, face + 4, face + thick - 6, z, z + 22);
+                        break;
+
+                    case WindowShutters.Panelled:
+                        Frame();
+                        Box(_shutters, u0 + stile, u1 - stile, face, face + thick - 10, _sill + rail, middle - rail / 2);
+                        Box(_shutters, u0 + stile, u1 - stile, face, face + thick - 10, middle + rail / 2, _head - rail);
+                        break;
+
+                    default:
+                        var boards = Math.Max(2, (int)Math.Round(half / 120));
+                        var board = half / boards;
+                        for (var i = 0; i < boards; i++)
+                            Box(_shutters, u0 + i * board + (i == 0 ? 0 : 2), u0 + (i + 1) * board - (i == boards - 1 ? 0 : 2), face, face + 22, _sill, _head);
+                        var height = _head - _sill;
+                        foreach (var z in new[] { _sill + height * 0.18, _head - height * 0.18 - 70 })
+                            Box(_shutters, u0 + 25, u1 - 25, face + 22, face + 40, z, z + 70);
+                        break;
+                }
             }
         }
 

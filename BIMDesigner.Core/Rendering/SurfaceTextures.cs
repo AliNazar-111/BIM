@@ -102,6 +102,11 @@ public static class SurfaceTextures
         SurfacePattern.Grass => Grass(finish),
         SurfacePattern.Gravel => Gravel(finish),
         SurfacePattern.Planting => Planting(finish),
+        SurfacePattern.BoardAndBatten => BoardAndBatten(finish),
+        SurfacePattern.HalfTimbered => HalfTimbered(finish),
+        SurfacePattern.BarrelTiles => Barrel(finish),
+        SurfacePattern.Shingles => Shingles(finish),
+        SurfacePattern.Stucco => Grain(finish, 800, 0.8, 0.07, 0.045, 0.012, 13),
         SurfacePattern.Concrete => Grain(finish, 1200, 0.5, 0.03, 0.05, 0.004, 10),
         SurfacePattern.Metal => Grain(finish, 1000, 0.5, 0.025, 0.015, 0, 11, brushed: true),
         _ => Grain(finish, 1000, 0.6, 0.035, 0.025, 0, 12)
@@ -209,6 +214,203 @@ public static class SurfaceTextures
             var tint = 1 + 0.09 * (2 * Hash(row, 1, 23) - 1);
             var shade = tint * (1 + 0.10 * streaks.At(fx, fy) + 0.05 * knots.At(fx, fy) + 0.025 * fine.At(fx, fy));
             canvas.Set(x, y, Times(finish.Colour, shade), 0.6 + 0.4 * Math.Min(1, Math.Min(yy - gap, width - yy) / 3));
+        }
+
+        return canvas.Done(tileW, tileH);
+    }
+
+    /// <summary>
+    /// Boards stood upright side by side, the grain running up them, each a tone of its own, and a batten over each joint standing proud: lit
+    /// along its left edge, shaded along its right, casting a band of shadow on the board to its right (round 141).
+    /// </summary>
+    private static SurfaceTexture BoardAndBatten(SurfaceFinish finish)
+    {
+        var (spacing, batten, shadow) = (finish.UnitLength, Math.Max(10, Math.Min(finish.UnitHeight, finish.UnitLength / 2)), Math.Max(2, finish.JointWidth));
+        const int across = 4;
+        var (tileW, tileH) = (across * spacing, 2400.0);
+        var canvas = new Canvas(tileW, tileH, Scale(tileW, tileH, 0, 1536));
+        var streaks = new Noise(Cells(tileW, 2.5), Cells(tileH, 700), 70);
+        var knots = new Noise(Cells(tileW, 25), Cells(tileH, 90), 71);
+        var fine = new Noise(Cells(tileW, 2), Cells(tileH, 8), 72);
+        for (var y = 0; y < canvas.H; y++)
+        for (var x = 0; x < canvas.W; x++)
+        {
+            var (px, py) = canvas.Mm(x, y);
+            var (fx, fy) = (px / tileW, py / tileH);
+            var grain = 0.08 * streaks.At(fx, fy) + 0.04 * knots.At(fx, fy) + 0.02 * fine.At(fx, fy);
+            var xx = Wrap(px, spacing);
+
+            // The batten over the joint at xx 0: across it from its left edge.
+            var onBatten = xx < spacing / 2 ? batten / 2 + xx : batten / 2 - (spacing - xx);
+            if (onBatten >= 0 && onBatten <= batten)
+            {
+                var joint = (int)Math.Round(px / spacing) % across;
+                var edge = onBatten < 3 ? 1.14 : onBatten > batten - 3 ? 0.78 : 1;
+                canvas.Set(x, y, Times(finish.Colour, (1 + 0.06 * (2 * Hash(joint, 3, 73) - 1)) * edge * (1 + grain)), 1);
+                continue;
+            }
+
+            var board = (int)(px / spacing) % across;
+            var shade = (1 + 0.07 * (2 * Hash(board, 1, 74) - 1)) * (1 + grain);
+            var fromBatten = xx - batten / 2;
+            if (fromBatten < shadow) shade *= 0.6 + 0.4 * (fromBatten / shadow);
+            canvas.Set(x, y, Times(finish.Colour, shade), 0.3 + 0.1 * grain);
+        }
+
+        return canvas.Done(tileW, tileH);
+    }
+
+    /// <summary>
+    /// Half-timbering a storey high, four panels across: a sole plate along the bottom and a top plate along the top, a rail across the middle,
+    /// a post at every panel's edge, and braces - up from the sole plate to the rail in the outer panels' lower halves, leaning in, and in the
+    /// inner panels' upper halves leaning out - the timbers standing proud of the render between, each a tone of its own (round 142).
+    /// </summary>
+    private static SurfaceTexture HalfTimbered(SurfaceFinish finish)
+    {
+        var (panel, storey, timber) = (finish.UnitLength, finish.UnitHeight, Math.Max(40, finish.JointWidth));
+        const int across = 4;
+        var tileW = across * panel;
+        var canvas = new Canvas(tileW, storey, Scale(tileW, storey, 0, 1536));
+        var grain = new Noise(Cells(tileW, 3), Cells(storey, 60), 90);
+        var render = new Noise(Cells(tileW, 4), Cells(storey, 4), 91);
+        var blotch = new Noise(Cells(tileW, 200), Cells(storey, 200), 92);
+        var (rail, half) = (storey / 2, timber / 2);
+
+        // A brace: from one corner of half a panel to the other, as a band of the timber's width.
+        static double FromLine(double x, double y, double x0, double y0, double x1, double y1)
+        {
+            var (dx, dy) = (x1 - x0, y1 - y0);
+            var t = Math.Clamp(((x - x0) * dx + (y - y0) * dy) / (dx * dx + dy * dy), 0, 1);
+            return Math.Sqrt(Math.Pow(x - x0 - t * dx, 2) + Math.Pow(y - y0 - t * dy, 2));
+        }
+
+        for (var y = 0; y < canvas.H; y++)
+        for (var x = 0; x < canvas.W; x++)
+        {
+            var (px, py) = canvas.Mm(x, y);
+            var up = storey - py;
+            var k = Math.Min(across - 1, (int)(px / panel));
+            var xx = px - k * panel;
+            var (left, right) = (k * panel, (k + 1) * panel);
+            bool Brace()
+            {
+                if (k is 0 or across - 1 && up < rail)
+                    return k == 0 ? FromLine(px, up, left + half, timber, right - half, rail - half) < half * 0.8
+                                  : FromLine(px, up, right - half, timber, left + half, rail - half) < half * 0.8;
+                if (k is 1 or 2 && up > rail)
+                    return k == 1 ? FromLine(px, up, right - half, rail + half, left + half, storey - timber) < half * 0.8
+                                  : FromLine(px, up, left + half, rail + half, right - half, storey - timber) < half * 0.8;
+                return false;
+            }
+
+            var (fx, fy) = (px / tileW, py / storey);
+            var plate = up < timber || up > storey - timber;
+            var post = xx < half || xx > panel - half;
+            var middle = Math.Abs(up - rail) < half * 0.85;
+            if (plate || post || middle || Brace())
+            {
+                var piece = plate ? (up < timber ? 0 : 1) : post ? 2 + (int)Math.Round(px / panel) % across : middle ? 7 + k : 11 + k;
+                var tone = (1 + 0.12 * (2 * Hash(piece, 1, 93) - 1)) * (1 + 0.10 * grain.At(fx, fy));
+                canvas.Set(x, y, Times(finish.JointColour, tone), 1);
+                continue;
+            }
+
+            canvas.Set(x, y, Times(finish.Colour, 1 + 0.035 * render.At(fx, fy) + 0.03 * blotch.At(fx, fy)), 0.35);
+        }
+
+        return canvas.Done(tileW, storey);
+    }
+
+    /// <summary>
+    /// Curved clay tiles in rows down the slope, a pan and a cover across each unit: the pan a trough, low and shaded at its middle, the cover a
+    /// roll standing up over the pans either side, lit on one flank and dark on the other; each course's covers overlapping the course below,
+    /// a line of shadow under their ends; terracotta tile by tile a tone of its own (round 142).
+    /// </summary>
+    private static SurfaceTexture Barrel(SurfaceFinish finish)
+    {
+        var (width, gauge) = (finish.UnitLength, finish.UnitHeight);
+        const int across = 6, courses = 6;
+        var (tileW, tileH) = (across * width, courses * gauge);
+        var canvas = new Canvas(tileW, tileH, Scale(tileW, tileH, 0, 1536));
+        var fine = new Noise(Cells(tileW, 6), Cells(tileH, 6), 95);
+        var pan = width / 2;
+        for (var y = 0; y < canvas.H; y++)
+        for (var x = 0; x < canvas.W; x++)
+        {
+            var (px, py) = canvas.Mm(x, y);
+            var c = Math.Min(courses - 1, (int)(py / gauge));
+            var yy = py - c * gauge;
+            var k = (int)(px / width) % across;
+            var xx = Wrap(px, width);
+            var tint = 1 + 0.07 * (2 * Hash(k, c, 96) - 1);
+            double shade, relief;
+
+            // The cover, a half round over the joint between pans: across it from its left flank, 0 to pi.
+            var onCover = xx < pan / 2 ? xx + pan / 2 : xx > width - pan / 2 ? xx - (width - pan / 2) : -1;
+            if (onCover >= 0)
+            {
+                var angle = Math.PI * onCover / pan;
+                (shade, relief) = (0.8 + 0.38 * Math.Cos(angle) + 0.1 * Math.Sin(angle), 0.55 + 0.45 * Math.Sin(angle));
+            }
+            else
+            {
+                var across_ = (xx - pan / 2) / pan;
+                (shade, relief) = (0.82 + 0.1 * Math.Abs(2 * across_ - 1), 0.1 + 0.25 * Math.Abs(2 * across_ - 1));
+            }
+
+            // The course above's ends over the top of this one, and their shadow.
+            var shadow = Math.Min(25, gauge * 0.08);
+            if (yy < shadow) shade *= 0.5 + 0.5 * (yy / shadow);
+            canvas.Set(x, y, Times(finish.Colour, tint * shade * (1 + 0.04 * fine.At(px / tileW, py / tileH))), relief);
+        }
+
+        return canvas.Done(tileW, tileH);
+    }
+
+    /// <summary>
+    /// Shingles in courses, each of a width and a tone of its own, the joints of one course off those of the course below, a gap between: each
+    /// course's butts standing proud of the course below and casting a line of shadow on it - cedar shingles on a wall, asphalt ones on a roof
+    /// (round 141).
+    /// </summary>
+    private static SurfaceTexture Shingles(SurfaceFinish finish)
+    {
+        var (width, exposure, gap) = (finish.UnitLength, finish.UnitHeight, Math.Max(0, finish.JointWidth));
+        const int courses = 8;
+        var (tileW, tileH) = (Math.Max(1200, 6 * width), courses * exposure);
+        var canvas = new Canvas(tileW, tileH, Scale(tileW, tileH, gap, 1536));
+        var streaks = new Noise(Cells(tileW, 2), Cells(tileH, 60), 80);
+        var cuts = new List<double>[courses];
+        var shifts = new double[courses];
+        for (var c = 0; c < courses; c++)
+        {
+            (cuts[c], shifts[c]) = (new List<double> { 0 }, Hash(c, 7, 81) * tileW);
+            var at = 0.0;
+            for (var k = 0; ; k++)
+            {
+                at += width * (0.45 + 1.1 * Hash(c, k, 82));
+                if (at >= tileW - 0.4 * width) break;
+                cuts[c].Add(at);
+            }
+        }
+
+        var shadow = Math.Min(12, exposure * 0.1);
+        for (var y = 0; y < canvas.H; y++)
+        for (var x = 0; x < canvas.W; x++)
+        {
+            var (px, py) = canvas.Mm(x, y);
+            var c = Math.Min(courses - 1, (int)(py / exposure));
+            var yy = py - c * exposure;
+            var along = Wrap(px - shifts[c], tileW);
+            var k = cuts[c].FindLastIndex(cut => cut <= along);
+            if (along - cuts[c][k] < gap)
+            {
+                canvas.Set(x, y, Times(finish.JointColour, 0.8), 0.1);
+                continue;
+            }
+
+            var shade = (1 + 0.12 * (2 * Hash(k, c, 83) - 1)) * (1 + 0.06 * streaks.At(px / tileW, py / tileH));
+            if (yy < shadow) shade *= 0.55 + 0.45 * (yy / shadow);
+            canvas.Set(x, y, Times(finish.Colour, shade), 0.15 + 0.75 * (yy / exposure));
         }
 
         return canvas.Done(tileW, tileH);

@@ -310,6 +310,8 @@ public static class FireDesign
         if (Is("flat", "apartment")) return BuildingUse.Flats;
         // A residential or nursing home, a boarding or guest house: its rooms are rooms for residential purposes, not a dwelling's (Regulation 2).
         if (Is("care", "nursing", "residential") && Is("home") || Is("boarding", "guest", "lodging") && Is("house") || Is("guesthouse")) return BuildingUse.Other;
+        // A US home under the IRC: a townhouse, a duplex, a one- or two-family dwelling (round 140).
+        if (Is("townho", "rowhouse", "rowhome", "duplex") || Is("family") && Is("one", "two", "single")) return BuildingUse.House;
         return type.Trim().Length == 0 || Is("house", "home", "dwelling", "bungalow", "extension") ? BuildingUse.House : BuildingUse.Other;
     }
 

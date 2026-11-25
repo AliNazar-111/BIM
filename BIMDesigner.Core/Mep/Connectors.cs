@@ -383,6 +383,21 @@ public static class Connectors
                     new Connector("Interlink", SystemKind.FireAlarm, ConnectorFlow.Both, 0, 0, 0, h) { Points = Up }
                 };
 
+            // A fire detection and alarm system to BS 5839-1 (round 138): the panel on a circuit of its own from the board, and its loop out to
+            // the call points, sounders, beacons and detectors - each on the loop - in fire-resisting cable (Approved Document B Volume 2 5.30).
+            case ComponentForm.FireAlarmPanel:
+                return new[]
+                {
+                    Cable("Power", 0, -halfD, h - 30, Back),
+                    new Connector("Loop", SystemKind.FireAlarm, ConnectorFlow.Both, 0, 0, -halfD, h - 60) { Points = Back }
+                };
+
+            case ComponentForm.FireAlarmCallPoint or ComponentForm.FireAlarmSounder or ComponentForm.VisualAlarm:
+                return new[] { new Connector("Loop", SystemKind.FireAlarm, ConnectorFlow.Both, 0, 0, -halfD, h / 2) { Points = Back } };
+
+            case ComponentForm.SmokeDetector or ComponentForm.HeatDetector:
+                return new[] { new Connector("Loop", SystemKind.FireAlarm, ConnectorFlow.Both, 0, 0, 0, h) { Points = Up } };
+
             case ComponentForm.CarbonMonoxideAlarm:
                 return new[] { Cable("Power", 0, 0, h, Up) with { Optional = true } };
 

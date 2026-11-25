@@ -837,6 +837,8 @@ public static partial class ProjectFile
                 TransomHeight = type.TransomHeight,
                 Fanlight = type.Fanlight.ToString(),
                 MullionWidth = type.MullionWidth,
+                Shutters = type.Shutters == WindowShutters.None ? null : type.Shutters.ToString(),
+                ShutterFinish = type.Shutters == WindowShutters.None ? null : type.ShutterFinish,
                 SmokeVent = type.SmokeVent == SmokeVentKind.None ? null : type.SmokeVent.ToString(),
                 SmokeVentArea = type.SmokeVentArea > 0 ? type.SmokeVentArea : null
             };
@@ -1483,6 +1485,7 @@ public static partial class ProjectFile
             Grouped = system.Kind == SystemKind.Power && system.Grouped > 1 ? system.Grouped : null,
             CableLength = system.Kind == SystemKind.Power && system.CableLength > 0 ? system.CableLength : null,
             Phase = system.Kind == SystemKind.Power && system.Phase is >= 1 and <= MepSystem.AllPhases ? system.Phase : null,
+            FireResisting = system.FireResisting ? true : null,
             Mark = system.Mark, Comments = system.Comments
         }).ToList();
         dto.Systems = systems.Count > 0 ? systems : null;
@@ -1965,7 +1968,7 @@ public static partial class ProjectFile
                 read.Group = ParseEnum(material.Group, MasonryGroup.Group1);
                 read.Category = ParseEnum(material.Category, UnitCategory.CategoryII);
                 read.ReactionToFire = Euroclass.TryParse(material.ReactionToFire, out var fire) ? fire.ToString() : string.Empty;
-                read.RoofCovering = RoofDesignation.TryParse(material.RoofCovering, out var roof) ? roof.ToString() : string.Empty;
+                read.RoofCovering = RoofDesignation.TryParse(material.RoofCovering, out var roof) ? roof.ToString() : UsRoofClass.TryParse(material.RoofCovering, out var usRoof) ? usRoof.ToString() : string.Empty;
                 read.Thermoplastic = Core.Materials.Thermoplastic.TryParse(material.Thermoplastic, out var plastic) ? Core.Materials.Thermoplastic.Said(plastic) : string.Empty;
                 read.SoundAbsorption = Core.Materials.SoundAbsorption.TryParse(material.SoundAbsorption, out var absorber) ? Core.Materials.SoundAbsorption.Said(absorber) : string.Empty;
                 read.JointColour = ParseColour(material.JointColour, new ColourRgb(0xC8, 0xC2, 0xB4));
@@ -2431,6 +2434,10 @@ public static partial class ProjectFile
                 TransomHeight = double.IsFinite(type.TransomHeight) && type.TransomHeight > 0 ? type.TransomHeight : 0,
                 Fanlight = ParseEnum(type.Fanlight, FanlightOperation.Fixed),
                 MullionWidth = type.MullionWidth is >= 20 and <= 250 ? type.MullionWidth.Value : 70,
+
+                // Saved before shutters: none.
+                Shutters = ParseEnum(type.Shutters, WindowShutters.None),
+                ShutterFinish = string.IsNullOrWhiteSpace(type.ShutterFinish) ? "Painted Black" : type.ShutterFinish,
 
                 // Saved before smoke vents: not one.
                 SmokeVent = ParseEnum(type.SmokeVent, SmokeVentKind.None),
@@ -3541,7 +3548,8 @@ public static partial class ProjectFile
                 Method = ParseEnum(saved.Method, CableMethod.ClippedDirect),
                 Grouped = saved.Grouped is >= 1 and <= 100 ? saved.Grouped.Value : 1,
                 CableLength = saved.CableLength is > 0 and < 100000 ? saved.CableLength.Value : 0,
-                Phase = saved.Phase is >= 1 and <= MepSystem.AllPhases ? saved.Phase.Value : 0
+                Phase = saved.Phase is >= 1 and <= MepSystem.AllPhases ? saved.Phase.Value : 0,
+                FireResisting = saved.FireResisting ?? false
             };
             foreach (var id in (saved.Members ?? new List<Guid>()).Distinct())
                 if (document.Find<Component>(id) is { } member && MepSystems.WhyNotMember(document, member, system) is null) system.Members.Add(id);

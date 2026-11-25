@@ -295,6 +295,21 @@ public sealed class DoorType : OpeningType
 }
 
 /// <summary>A window type (specification section 13.3, type parameters).</summary>
+/// <summary>A window's shutters, either side of it on the wall's outside face (round 142).</summary>
+public enum WindowShutters
+{
+    None,
+
+    /// <summary>Slats between stiles and rails, as on a colonial house.</summary>
+    Louvred,
+
+    /// <summary>Two panels set in a frame.</summary>
+    Panelled,
+
+    /// <summary>Upright boards with two battens across.</summary>
+    Board
+}
+
 public sealed class WindowType : OpeningType
 {
     public WindowType(string name, double width, double height) : base(name, width, height) { }
@@ -305,8 +320,14 @@ public sealed class WindowType : OpeningType
         Operation = Operation, GlazingType = GlazingType, GlazingRows = GlazingRows, GlazingColumns = GlazingColumns,
         SolarHeatGainCoefficient = SolarHeatGainCoefficient, LightTransmittance = LightTransmittance, TrickleVent = TrickleVent,
         Lights = Lights, LightPattern = LightPattern, TransomHeight = TransomHeight, Fanlight = Fanlight, MullionWidth = MullionWidth,
-        SmokeVent = SmokeVent, SmokeVentArea = SmokeVentArea
+        SmokeVent = SmokeVent, SmokeVentArea = SmokeVentArea, Shutters = Shutters, ShutterFinish = ShutterFinish
     }));
+
+    /// <summary>The shutters either side of it on the wall's outside face, each half its width: none, louvred, panelled or board (round 142).</summary>
+    public WindowShutters Shutters { get; set; }
+
+    /// <summary>What its shutters are finished in - "Painted Black", "Painted Green", "Natural Oak": their colour read from it.</summary>
+    public string ShutterFinish { get; set; } = "Painted Black";
 
     /// <summary>Its trickle ventilator's equivalent area, mm² - a background ventilator in its frame (Approved Document F, Table 1.7); none at 0.</summary>
     public double TrickleVent { get; set; }
@@ -399,6 +420,15 @@ public sealed class WindowType : OpeningType
             () => EnumText.Humanise(Operation),
             v => { if (EnumText.TryParse<WindowOperation>(v, out var o)) Operation = o; },
             EnumText.Choices<WindowOperation>());
+
+        // Shutters either side on the outside face (round 142): not on a bay.
+        if (Operation != WindowOperation.Bay)
+        {
+            yield return ParameterValue.BindChoice(WindowTypeParameters.Shutters, () => EnumText.Humanise(Shutters),
+                v => { if (EnumText.TryParse<WindowShutters>(v, out var shutters)) Shutters = shutters; }, EnumText.Choices<WindowShutters>());
+            if (Shutters != WindowShutters.None)
+                yield return ParameterValue.Bind(WindowTypeParameters.ShutterFinish, () => ShutterFinish, v => ShutterFinish = string.IsNullOrWhiteSpace(v) ? "Painted Black" : v.Trim());
+        }
 
         yield return ParameterValue.Bind(WindowTypeParameters.GlazingType, () => GlazingType, v => GlazingType = v);
         yield return ParameterValue.Bind(WindowTypeParameters.SolarHeatGain,
@@ -539,6 +569,12 @@ public static class DoorTypeParameters
 
 public static class WindowTypeParameters
 {
+    public static readonly ParameterDefinition Shutters =
+        new("Shutters", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition ShutterFinish =
+        new("Shutter Finish", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.MaterialsAndFinishes);
+
     public static readonly ParameterDefinition GlazingRows =
         new("Glazing Rows", ParameterDataType.Integer, ParameterBinding.Type, ParameterGroup.Construction);
 

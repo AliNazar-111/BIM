@@ -300,6 +300,7 @@ public static class MepSystems
         problems.AddRange(Broadband.Problems(document));
         problems.AddRange(Penetrations.Problems(document));
         problems.AddRange(Cavities.ServiceProblems(document));
+        problems.AddRange(FireCircuits.Problems(document));
         problems.AddRange(FireCompartments.ServiceProblems(document));
         problems.AddRange(Notching.Problems(document));
         problems.AddRange(ServiceClearances.Problems(document));

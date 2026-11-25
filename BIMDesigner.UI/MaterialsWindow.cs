@@ -215,8 +215,10 @@ internal sealed class MaterialsWindow : System.Windows.Window
             : "not a thermoplastic by its name - its class to be put in, where it is one";
         _roof.Text = material?.RoofCovering ?? string.Empty;
         _roofSaid.Text = material is null ? string.Empty
+            : UsRoofClass.TryParse(material.RoofCovering, out _) ? "as its listing has it, ASTM E108 or UL 790"
             : RoofDesignation.Of(material, 10) is { } roofing ? material.RoofCovering.Length > 0 ? "as its maker declares" : $"{roofing.Designation}, as its name has it - {roofing.By}"
-            : "not given - its maker's designation to be put in, where it covers a roof";
+            : _main.Document.ProjectInformation.ClearanceStandard.IsUs() && UsRoofClass.Typical(material.Name, true) is { } usRoofing ? $"{usRoofing.Class}, as its name has it - {usRoofing.By}"
+            : "not given - its maker's designation, or its US class, to be put in where it covers a roof";
         _fire.Text = material?.ReactionToFire ?? string.Empty;
         _fireSaid.Text = material is null ? string.Empty
             : Euroclass.Of(material) is { } fire ? material.ReactionToFire.Length > 0 ? "as its maker declares" : $"{fire.Class}, as its name has it - {fire.By}"
@@ -246,7 +248,7 @@ internal sealed class MaterialsWindow : System.Windows.Window
             _reflectance.Text = finish.Reflectance.ToString("0.###", CultureInfo.CurrentCulture);
             (_surfaceSwatch.Background, _cutSwatch.Background, _jointSwatch.Background) = (Solid(material.SurfaceColour), Solid(material.CutColour), Solid(finish.JointColour));
             Labels(finish.Pattern);
-            var units = finish.Pattern is not (SurfacePattern.None or SurfacePattern.Render or SurfacePattern.Concrete or SurfacePattern.Metal or SurfacePattern.Grass or SurfacePattern.Gravel or SurfacePattern.Planting);
+            var units = finish.Pattern is not (SurfacePattern.None or SurfacePattern.Render or SurfacePattern.Stucco or SurfacePattern.Concrete or SurfacePattern.Metal or SurfacePattern.Grass or SurfacePattern.Gravel or SurfacePattern.Planting);
             _length.IsEnabled = _height.IsEnabled = _joint.IsEnabled = _jointColour.IsEnabled = units;
             _height.IsEnabled = units && finish.Pattern != SurfacePattern.StandingSeam;
             _preview.Fill = FaceBrush(finish, PreviewPx / PreviewMm);
@@ -265,6 +267,10 @@ internal sealed class MaterialsWindow : System.Windows.Window
             SurfacePattern.Block => ("Block length", "Block height", "Mortar joint"),
             SurfacePattern.Stone => ("Stone length", "Course height", "Joint"),
             SurfacePattern.Boards => ("Board length", "Board width", "Gap"),
+            SurfacePattern.BoardAndBatten => ("Batten spacing", "Batten width", "Shadow"),
+            SurfacePattern.Shingles => ("Width", "Exposure", "Gap"),
+            SurfacePattern.HalfTimbered => ("Panel width", "Storey height", "Timber width"),
+            SurfacePattern.BarrelTiles => ("Pan and cover", "Gauge up the slope", "Joint"),
             SurfacePattern.Tiles or SurfacePattern.Paving => ("Unit length", "Unit width", "Joint"),
             SurfacePattern.Slate or SurfacePattern.PlainTiles or SurfacePattern.InterlockingTiles => ("Width", "Gauge up the slope", "Gap"),
             SurfacePattern.StandingSeam => ("Seams at", "-", "Seam width"),
@@ -325,8 +331,11 @@ internal sealed class MaterialsWindow : System.Windows.Window
 
         var roofText = _roof.Text.Trim();
         if (roofText.Length == 0) look = look with { RoofCovering = string.Empty };
+        // A US class by ASTM E108 says so - "Class A" - before a single letter is taken as BS EN 13501-5's (round 140).
+        else if (roofText.Contains("class", StringComparison.OrdinalIgnoreCase) && UsRoofClass.TryParse(roofText, out var usClass)) look = look with { RoofCovering = usClass.ToString() };
         else if (RoofDesignation.TryParse(roofText, out var roofing)) look = look with { RoofCovering = roofing.ToString() };
-        else DialogLook.Warn(_problem, $"{roofText} is no designation by BS EN 13501-5 - BROOF(t4), CROOF(t4), DROOF(t4), EROOF(t4) or FROOF(t4).");
+        else if (UsRoofClass.TryParse(roofText, out var usRoof)) look = look with { RoofCovering = usRoof.ToString() };
+        else DialogLook.Warn(_problem, $"{roofText} is no designation by BS EN 13501-5 - BROOF(t4), CROOF(t4), DROOF(t4), EROOF(t4) or FROOF(t4) - nor a US class, Class A, B or C.");
 
         var plasticText = _plastic.Text.Trim();
         if (plasticText.Length == 0) look = look with { Thermoplastic = string.Empty };

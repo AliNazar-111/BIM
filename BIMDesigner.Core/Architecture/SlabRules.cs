@@ -95,6 +95,9 @@ public static class SlabRules
         if (type.Structure.Layers.Count == 0 || document.FindMaterial(type.Structure.Layers[0].MaterialId)?.Name is not { } name) return null;
         if (name.Contains("slate", StringComparison.OrdinalIgnoreCase)) return (20, "natural slate");
         if (name.Contains("tile", StringComparison.OrdinalIgnoreCase) && name.Contains("plain", StringComparison.OrdinalIgnoreCase)) return (35, "plain tiles");
+
+        // Curved clay tiles - Spanish, mission, barrel - laid at their maker's least pitch, which BS 5534 leaves to them: not taken as interlocking (round 142).
+        if (new[] { "barrel", "spanish", "mission", "curved" }.Any(word => name.Contains(word, StringComparison.OrdinalIgnoreCase))) return null;
         if (name.Contains("tile", StringComparison.OrdinalIgnoreCase)) return (15, "interlocking tiles");
         return null;
     }
@@ -135,6 +138,10 @@ public static class SlabRules
             if (slab is Roof { SlopeDegrees: > 0.5 } sloped && document.FindType<RoofType>(sloped.TypeId) is { } usType && IrcCoveringSlope(document, usType) is var (rise, usCovering, section)
                 && Math.Tan(sloped.SlopeDegrees * Math.PI / 180) * 12 < rise - 0.01)
                 Add($"it is pitched {Math.Tan(sloped.SlopeDegrees * Math.PI / 180) * 12:0.#} in 12, too flat for {usCovering}.", $"The IRC ({section}) lays {usCovering} at {rise:0.#} in 12 at the least.");
+
+            // Between the dwelling units of a two-family dwelling (IRC R302.3, round 140).
+            if (slab is Floor units)
+                foreach (var (said, rule) in UnitSeparation.Problems(document, units, type)) Add(said, rule);
             return problems;
         }
 

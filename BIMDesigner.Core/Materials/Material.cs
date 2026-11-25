@@ -192,7 +192,22 @@ public enum SurfacePattern
     Grass,
     Gravel,
     Paving,
-    Planting
+    Planting,
+
+    /// <summary>Boards stood upright, a batten over each joint (round 141).</summary>
+    BoardAndBatten,
+
+    /// <summary>Shingles in courses of their own widths: cedar on a wall, asphalt on a roof (round 141).</summary>
+    Shingles,
+
+    /// <summary>Stucco, exterior cement plaster: coarser than render, a sand float finish (round 141).</summary>
+    Stucco,
+
+    /// <summary>Half-timbering, Tudor or mock Tudor: posts, rails and braces over render, a storey high (round 142).</summary>
+    HalfTimbered,
+
+    /// <summary>Curved clay tiles - Spanish, mission, barrel: pans and covers in rows down the slope (round 142).</summary>
+    BarrelTiles
 }
 
 /// <summary>A face's look: its colour, pattern, units and joints, and its reflection.</summary>

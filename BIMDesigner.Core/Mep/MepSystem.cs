@@ -68,6 +68,12 @@ public sealed class MepSystem : Element
     /// <summary>A circuit's <see cref="Phase"/> where it runs across all three phases.</summary>
     public const int AllPhases = 4;
 
+    /// <summary>
+    /// Whether a circuit is wired in fire-resisting cable - PH 30 or better to BS EN 50200, as a protected circuit to equipment working in a
+    /// fire is (Approved Document B Volume 2 5.30a): its sizing taken as its ordinary cable's of the same size.
+    /// </summary>
+    public bool FireResisting { get; set; }
+
     /// <summary>How a circuit across all three phases is offered.</summary>
     public const string AllPhasesSaid = "L1, L2 and L3 (400 V)";
 
@@ -136,6 +142,8 @@ public sealed class MepSystem : Element
             yield return ParameterValue.ReadOnly(MepSystemParameters.VoltageDrop, () => Designed() is { } now ? Math.Round(now.Drop / now.Voltage * 100, 2) : 0);
             yield return ParameterValue.ReadOnly(MepSystemParameters.Design, () => Circuits.Describe(document, this));
         }
+        if (Kind is SystemKind.Power or SystemKind.FireAlarm)
+            yield return ParameterValue.Bind(MepSystemParameters.FireResisting, () => FireResisting, v => FireResisting = v);
         if (Kind == SystemKind.Heating)
         {
             // Kept in °C; given in °F in feet and inches.
@@ -221,6 +229,7 @@ public static class MepSystemParameters
     public static readonly ParameterDefinition Breaker = new("Breaker (A)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition Curve = new("Breaker Curve", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition Rcd = new("RCD (30 mA)", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Constraints);
+    public static readonly ParameterDefinition FireResisting = new("Fire-Resisting Cable (PH 30)", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition Gfci = new("GFCI", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition Afdd = new("AFDD", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition Afci = new("AFCI", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Constraints);
