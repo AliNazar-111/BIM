@@ -2657,6 +2657,11 @@ public sealed class BimDocument
                 TypeMark = "FA5", Colour = new ColourRgb(0xD0, 0x22, 0x1C), Cost = 45m, Placement = ComponentPlacement.FaceBased, DefaultElevation = 1355,
                 Description = "A manual call point, direct operation, to BS EN 54-11 Type A: pressed to raise the alarm (Approved Document B Volume 2 1.10)"
             },
+            new ComponentType("Emergency Door Release - Green, BS 7273-4 Type A", BuiltInCategory.FireAlarmDevices, ComponentForm.DoorRelease, 90, 60, 90)
+            {
+                TypeMark = "FA11", Colour = new ColourRgb(0x1E, 0x8A, 0x3C), Cost = 55m, Placement = ComponentPlacement.FaceBased, DefaultElevation = 1200,
+                Description = "A green emergency door release to BS 7273-4 Type A, beside a door with an electrically powered lock on the side people escaping come to it: pressed, the lock lets go (Approved Document B Volume 2 5.8)"
+            },
             new ComponentType("Fire Alarm Sounder - BS EN 54-3", BuiltInCategory.FireAlarmDevices, ComponentForm.FireAlarmSounder, 110, 90, 110)
             {
                 TypeMark = "FA6", Colour = new ColourRgb(0xD0, 0x22, 0x1C), Cost = 60m, Placement = ComponentPlacement.FaceBased, DefaultElevation = 2300,

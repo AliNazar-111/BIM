@@ -53,7 +53,13 @@ public enum DoorFastening
     Latch,
     None,
     PanicBar,
-    EmergencyLever
+    EmergencyLever,
+
+    /// <summary>A lock opened by a key from either side - no simple fastening on a door on an escape route (Approved Document B Volume 2 5.7b iii).</summary>
+    KeyLock,
+
+    /// <summary>An electrically powered lock - a maglock, a keypad's, a card or fob reader's - released by the fire alarm, a power failure or a green emergency door release beside it (5.8).</summary>
+    ElectricLock
 }
 
 /// <summary>How a window opens (specification section 3.5).</summary>

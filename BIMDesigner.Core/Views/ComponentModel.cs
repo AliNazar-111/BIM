@@ -1279,8 +1279,8 @@ public static class ComponentModel
                 Add(halfW * 0.05, halfW * 0.7, halfD - 2, halfD, h * 0.42, h * 0.58, PartFinish.White);
                 break;
 
-            case ComponentForm.FireAlarmCallPoint:
-                // Its red box on the wall, and the white element pressed to raise the alarm.
+            case ComponentForm.FireAlarmCallPoint or ComponentForm.DoorRelease:
+                // Its red box on the wall - a door release's green - and the white element pressed to raise the alarm or let the lock go.
                 Add(-halfW, halfW, -halfD, halfD - 4, 0, h);
                 Add(-halfW * 0.55, halfW * 0.55, halfD - 4, halfD, h * 0.25, h * 0.8, PartFinish.White);
                 break;
@@ -1731,7 +1731,7 @@ public static class ComponentModel
                 shapes.Add(frame.Ellipse(-halfW * 0.6, halfW * 0.6, -halfD * 0.6, halfD * 0.6, 16));
                 break;
 
-            case ComponentForm.FireAlarmCallPoint or ComponentForm.FireAlarmSounder or ComponentForm.VisualAlarm or ComponentForm.FireAlarmPanel:
+            case ComponentForm.FireAlarmCallPoint or ComponentForm.FireAlarmSounder or ComponentForm.VisualAlarm or ComponentForm.FireAlarmPanel or ComponentForm.DoorRelease:
                 // Its face on the wall, lettered.
                 Inside(-halfW, halfW, halfD - Math.Min(15, d * 0.3), halfD);
                 break;
@@ -2253,6 +2253,7 @@ public static class ComponentModel
         ComponentForm.ExitSign => "EXIT",
         ComponentForm.FireHydrant => "FH",
         ComponentForm.FireAlarmCallPoint => "CP",
+        ComponentForm.DoorRelease => "DR",
         ComponentForm.FireAlarmSounder => "SO",
         ComponentForm.VisualAlarm => "VAD",
         ComponentForm.SmokeDetector => "SD",
@@ -2272,7 +2273,7 @@ public static class ComponentModel
             or ComponentForm.StopValve or ComponentForm.GasMeter or ComponentForm.Sprinkler or ComponentForm.SprinklerValve
             or ComponentForm.FireMainInlet or ComponentForm.FireMainOutlet or ComponentForm.EmergencyLight or ComponentForm.ExitSign
             or ComponentForm.FireAlarmCallPoint or ComponentForm.FireAlarmSounder or ComponentForm.VisualAlarm or ComponentForm.SmokeDetector
-            or ComponentForm.HeatDetector or ComponentForm.FireAlarmPanel);
+            or ComponentForm.HeatDetector or ComponentForm.FireAlarmPanel or ComponentForm.DoorRelease);
 
     /// <summary>How far a gas fire stands out from the wall behind its hearth, mm.</summary>
     public static double FireDepth(ComponentType type) => Math.Min(150, type.Depth * 0.5);

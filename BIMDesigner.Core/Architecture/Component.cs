@@ -332,7 +332,13 @@ public enum ComponentForm
     /// A fire detection and alarm system's control and indicating equipment, to BS EN 54-2, with its power supply to BS EN 54-4: the panel the
     /// call points, detectors and sounders are wired back to (Approved Document B Volume 2 1.8).
     /// </summary>
-    FireAlarmPanel
+    FireAlarmPanel,
+
+    /// <summary>
+    /// An emergency door release - a green break-glass unit to BS 7273-4, Type A - beside a door held by an electrically powered lock, on the side
+    /// people escaping come to it, overriding the lock (Approved Document B Volume 2 5.8).
+    /// </summary>
+    DoorRelease
 }
 
 /// <summary>

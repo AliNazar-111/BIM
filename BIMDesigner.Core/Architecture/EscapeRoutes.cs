@@ -116,8 +116,52 @@ public static partial class EscapeRoutes
         DoorFastening.Latch => "a latch",
         DoorFastening.EmergencyLever => "an emergency exit device to BS EN 179",
         DoorFastening.PanicBar => "a panic bar",
+        DoorFastening.KeyLock => "a lock opened by a key",
+        DoorFastening.ElectricLock => "an electrically powered lock",
         _ => "none"
     };
+
+    /// <summary>How near a door its emergency door release stands, mm; the least headroom on an escape route, mm; the step outside a final exit taken as level, mm.</summary>
+    public const double ReleaseReach = 1500, Headroom = 2000, Threshold = 15;
+
+    /// <summary>Whether a door's leaves sweep over a step - a stair's tread or landing above or below its floor - other than one on the doorway's own line (5.12b i).</summary>
+    private static string? SwingOverStep(BimDocument document, Door door)
+    {
+        if (document.Find<Wall>(door.HostWallId) is not { } wall || document.FindLevel(wall.LevelId) is not { } level) return null;
+        var sweeps = DoorSwing.Sweeps(document, door);
+        if (sweeps.Count == 0) return null;
+        foreach (var stair in document.All<Stair>())
+        foreach (var flight in Stairs.Flights(document, stair))
+        foreach (var step in flight.Layout.Steps)
+        {
+            var rise = Math.Abs(step.Top - level.Elevation);
+            if (rise < 50 || rise > 1200 || step.Outline.Count < 3) continue;
+            if (sweeps.Any(sweep => PolygonBoolean.Combine(sweep, step.Outline, BooleanOperation.Intersection).Sum(region => region.Area) > 2500))
+                return document.FindType<StairType>(stair.TypeId)?.Name ?? "a stair";
+        }
+
+        return null;
+    }
+
+    /// <summary>The headroom over an escape route through a room - its ceiling's, else the floor's or roof's over it - where it is under 2 m (5.16); null where it is not.</summary>
+    public static double? HeadroomShort(BimDocument document, Room room)
+    {
+        if (room.GetBoundary(document) is not { IsEnclosed: true } boundary || boundary.Polygon.Count < 3 || document.FindLevel(room.LevelId) is not { } level) return null;
+        var middle = new Point2D(boundary.Polygon.Average(point => point.X), boundary.Polygon.Average(point => point.Y));
+        var floor = level.Elevation;
+        var ceilings = document.All<Ceiling>().Where(ceiling => ceiling.LevelId == room.LevelId && ceiling.Boundary.Count >= 3 && ceiling.Contains(middle))
+            .Select(ceiling => ceiling.GetBottomElevation(document) - floor).Where(height => height > 0).ToList();
+        var over = ceilings.Count > 0 ? ceilings.Min() : Cavities.Soffit(document, middle, floor + 1) is { } soffit ? soffit.Elevation - floor : double.NaN;
+        return !double.IsNaN(over) && over < Headroom - 0.5 ? over : null;
+    }
+
+    private static double DistanceTo(IReadOnlyList<Point2D> outline, Point2D point)
+    {
+        if (outline.Count >= 3 && Polygon2D.Contains(outline, point)) return 0;
+        var least = double.PositiveInfinity;
+        for (var i = 0; i < outline.Count; i++) least = Math.Min(least, Line2D.DistanceFromSegment(point, outline[i], outline[(i + 1) % outline.Count]));
+        return least;
+    }
 
     private static bool Corridor(BimDocument document, Room room) =>
         room.GetBoundary(document) is { IsEnclosed: true } boundary && boundary.Polygon.Count >= 3 && Circulation.IsCorridor(room, boundary.Polygon);
@@ -156,6 +200,43 @@ public static partial class EscapeRoutes
         if (use.Into is { } next && Corridor(document, use.From) && Corridor(document, next) && !VisionPanel(type))
             yield return ($"it divides the corridor - the {use.From.Name} from the {next.Name} - with no vision panel.",
                 "Approved Document B Volume 2 (5.14a) asks a vision panel in a door on an escape route that divides a corridor: a glazed or half-glazed leaf.");
+
+        // Swinging both ways: a vision panel (5.14b, round 137).
+        else if (type.Operation == DoorOperation.DoubleSwing && !VisionPanel(type))
+            yield return ("it swings both ways, with no vision panel.",
+                "Approved Document B Volume 2 (5.14b) asks a vision panel in a door on an escape route hung to swing both ways: a glazed or half-glazed leaf.");
+
+        // Its fastenings: simple, opened without a key from the side people escape from (5.7b iii); an electric lock overridden by a green
+        // emergency door release on that side (5.8).
+        if (type.Fastening == DoorFastening.KeyLock && !type.Automatic)
+            yield return ($"its fastening is a lock opened by a key, on the way {way}.",
+                "Approved Document B Volume 2 (5.7b) asks a door on an escape route to have no lock, latch or bolt, or only simple fastenings - easy to work, from the side people escape from, without a key, by one mechanism: a thumb-turn or a latch, not a key; a hotel bedroom's lock may need a key from outside only.");
+        else if (type.Fastening == DoorFastening.ElectricLock && Middle(document, door) is { } at && document.Find<Wall>(door.HostWallId) is { } host
+                 && use.From.GetBoundary(document) is { IsEnclosed: true } escaping
+                 && !document.All<Component>().Any(piece => piece.LevelId == host.LevelId && piece.Location.DistanceTo(at) <= ReleaseReach && Polygon2D.Contains(escaping.Polygon, piece.Location)
+                                                            && document.FindType<ComponentType>(piece.TypeId)?.Form == ComponentForm.DoorRelease))
+            yield return ($"it has an electrically powered lock, and no emergency door release beside it in the {use.From.Name}, the side people escape from.",
+                "Approved Document B Volume 2 (5.8) asks an electrically powered lock on an escape route to let go when the fire alarm sounds, when the power or the system fails and when its override is worked - a green emergency door release, BS 7273-4 Type A, beside it on the side people escaping come to it, on both sides where they escape either way.");
+
+        // Its swing clear of a step - but a threshold or single step on the doorway's line (5.12b i).
+        if (hinged && SwingOverStep(document, door) is { } steps)
+            yield return ($"its leaf sweeps over the steps of the {steps}.",
+                "Approved Document B Volume 2 (5.12b) asks a door on an escape route to open with a swing clear of any change of floor level, but a threshold or a single step on the doorway's line - and not to narrow an escape route across a landing.");
+
+        // A final exit where the way to it has no stairs: level outside, or a ramp (5.22).
+        if (use.Outside && ExternalStairs.AtGrade(document, door) && document.Find<Wall>(door.HostWallId) is { } outer && document.FindLevel(outer.LevelId) is { } exitLevel
+            && Math.Abs(exitLevel.Elevation - Escape.Ground(document)) <= 100 && Middle(document, door) is { } exitAt)
+        {
+            var typeOfWall = document.GetWallType(outer);
+            var reach = (typeOfWall?.Structure.TotalWidth ?? 300) / 2 + 300;
+            var (a, b) = typeOfWall is null ? (exitAt, exitAt) : (outer.PointAt(typeOfWall.Structure, door.DistanceAlongWall, reach), outer.PointAt(typeOfWall.Structure, door.DistanceAlongWall, -reach));
+            var outside = RoomsOf.Containing(document, outer.LevelId, a) is null ? a : b;
+            if (Terrains.GroundAt(document, outside) is { } groundOutside && exitLevel.Elevation - groundOutside > Threshold + 0.5
+                && !document.All<Ramp>().Any(ramp => Ramps.Layout(document, ramp).Footprint is { Count: >= 3 } outline && DistanceTo(outline, outside) <= 1500)
+                && !document.All<Stair>().Any(stair => stair.Outside && Stairs.Flights(document, stair).Any(flight => flight.Layout.Steps.Any(step => DistanceTo(step.Outline, outside) <= 1500))))
+                yield return ($"it is a final exit {exitLevel.Elevation - groundOutside:0} above the ground outside it, with no ramp.",
+                    "Approved Document B Volume 2 (5.22) asks a final exit not to bar disabled people: where the way to it has no stairs, a level threshold - 15 mm at most - and where needed a ramp outside it.");
+        }
 
         // A storey exit but a main entrance: its exit sign (5.28).
         if (StoreyExit(document, door) && !MainEntrances(document).Contains(door) && !SignBy(document, door))

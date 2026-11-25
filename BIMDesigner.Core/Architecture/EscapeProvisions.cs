@@ -271,6 +271,10 @@ public static partial class EscapeRoutes
         if (!Applies(document) || MixedUse.Home(document, room)) return wanting;
         if (LightingWanting(document, room) is { } dark) wanting.Add(dark);
         wanting.AddRange(RefuseProblems(document, room));
+
+        // An escape route through it - a corridor, lobby, hall or stair - 2 m clear under its ceiling (5.16, round 137).
+        if (FireSeparation.Circulation(room) && EscapeRoutes.HeadroomShort(document, room) is { } low)
+            wanting.Add($"its headroom is {low:0}, an escape route - Approved Document B Volume 2 (5.16) asks 2 m clear headroom on an escape route, only door frames lower");
         return wanting;
     }
 }
