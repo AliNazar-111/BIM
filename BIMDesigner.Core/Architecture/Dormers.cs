@@ -39,8 +39,11 @@ public static class Dormers
     /// <summary>The least a dormer's front wall stands above the roof and still makes a dormer.</summary>
     public const double MinimumHeight = 500;
 
-    /// <summary>The deepest roof build-up a dormer is given as it is; past it, a lighter one is found for it.</summary>
-    public const double MaximumRoofThickness = 200;
+    /// <summary>
+    /// The deepest roof build-up a dormer is given as it is - a tiled or slated roof on insulated rafters, 240 deep, being the house's own
+    /// (round 149); past it, a lighter one is found for it.
+    /// </summary>
+    public const double MaximumRoofThickness = 250;
 
     /// <summary>
     /// The roof build-up a new dormer is given: the main roof's own where that is light enough -
@@ -51,12 +54,15 @@ public static class Dormers
     public static Guid RoofTypeFor(BimDocument document, Roof main)
     {
         if (document.FindType<SlabType>(main.TypeId) is { Thickness: <= MaximumRoofThickness }) return main.TypeId;
+        return LightRoofType(document)?.Id ?? main.TypeId;
+    }
 
-        return document.TypesOf<RoofType>()
+    /// <summary>The lightest pitched build-up for a small roof - a dormer's on a heavy roof, a bay's: the thinnest of those 100 to 250 deep.</summary>
+    public static RoofType? LightRoofType(BimDocument document) =>
+        document.TypesOf<RoofType>()
             .Where(type => type.Thickness is >= 100 and <= MaximumRoofThickness)
             .OrderBy(type => type.Thickness)
-            .FirstOrDefault()?.Id ?? main.TypeId;
-    }
+            .FirstOrDefault();
 
     /// <summary>
     /// How high a dormer's front wall can be at a point on a roof: low enough that its roof

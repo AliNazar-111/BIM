@@ -176,6 +176,7 @@ public sealed class RenderScene
         SurfacePattern.Stucco => 0.8f,
         SurfacePattern.HalfTimbered => 15,
         SurfacePattern.BarrelTiles => 40,
+        SurfacePattern.Thatch => 10,
         SurfacePattern.Tiles => 1,
         SurfacePattern.Gravel => 4,
         SurfacePattern.Grass => 1.5f,

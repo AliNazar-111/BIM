@@ -627,7 +627,12 @@ public sealed class StructuralLoading
         /// <summary>How far a floor runs from a point one way before another bearing holds it, or it ends; nothing where it does not go that way.</summary>
         private static double Reach(Slab floor, Point2D from, Vector2D way, IReadOnlyList<Bearing> bearings, Bearing own)
         {
-            if (!floor.Contains(from + way * 60)) return 0;
+            // A bearing just outside the floor's edge holds it still: a thick wall whose core stands outside its centre line - rubble stone
+            // lined inside - the floor drawn to the line. Stepped onto the floor first, up to 300 (round 151).
+            var into = 0.0;
+            while (!floor.Contains(from + way * (into + 60)) && into < EdgeReach) into += 20;
+            if (!floor.Contains(from + way * (into + 60))) return 0;
+            from += way * into;
             const double far = 30000;
             var to = from + way * far;
             var nearest = far;
@@ -639,8 +644,11 @@ public sealed class StructuralLoading
                     if (Crossing(from, to, hole[i], hole[(i + 1) % hole.Count]) is { } t && t * far > 50) nearest = Math.Min(nearest, t * far);
             foreach (var other in bearings)
                 if (!ReferenceEquals(other, own) && Crossing(from, to, other.A, other.B) is { } t && t * far > 50) nearest = Math.Min(nearest, t * far);
-            return nearest >= far ? 0 : nearest;
+            return nearest >= far ? 0 : nearest + into;
         }
+
+        /// <summary>How far outside a floor's edge a bearing may stand and still hold it, mm.</summary>
+        private const double EdgeReach = 300;
 
         private static double? Crossing(Point2D a, Point2D b, Point2D c, Point2D d)
         {
@@ -686,6 +694,10 @@ public sealed class StructuralLoading
             {
                 if (AnalyticalModel.IsPlate(_document, roof) || roof.IsExtrusion || roof.Boundary.Count < 3 || roof.Edges.Count != roof.Boundary.Count) continue;
                 if (_document.FindType<SlabType>(roof.TypeId) is not { } type) continue;
+
+                // A dormer's roof stands on the main roof's trimmers, not on walls of its own: the main roof's slope is taken whole over the
+                // opening the dormer stands in, its weight and snow with it (round 149).
+                if (IsDormer(roof)) continue;
                 var surface = roof.Surface(_document);
                 if (surface.IsFlat)
                 {
@@ -693,7 +705,11 @@ public sealed class StructuralLoading
                     continue;
                 }
 
-                var bearings = BearingsAt(roof.BaseElevation(_document)).Where(bearing => bearing.Panel is not null).ToList();
+                // The walls' tops its eaves bear on; where no wall runs under an eave, a beam along it - a porch's or a carport's roof on a
+                // beam over posts (round 153).
+                var all = BearingsAt(roof.BaseElevation(_document));
+                var bearings = all.Where(bearing => bearing.Panel is not null).ToList();
+                var beams = all.Where(bearing => bearing.Member is { Kind: AnalyticalMemberKind.Beam }).ToList();
                 var count = roof.Boundary.Count;
                 var hipped = Enumerable.Range(0, count).Any(i => roof.Edges[i].DefinesSlope && roof.Edges[(i + 1) % count].DefinesSlope
                     && Math.Abs((roof.Boundary[(i + 1) % count] - roof.Boundary[i]).NormalisedOrDefault(Vector2D.UnitX).Cross((roof.Boundary[(i + 2) % count] - roof.Boundary[(i + 1) % count]).NormalisedOrDefault(Vector2D.UnitX))) > 0.3);
@@ -712,15 +728,17 @@ public sealed class StructuralLoading
                     var area = face is null ? 0 : face.Area / 1e6;
                     if (area <= 0) continue;
 
-                    // The walls under this eave: along it, within its overhang of it.
-                    var under = bearings.Where(bearing =>
+                    // The walls under this eave: along it, within its overhang of it - or, with none, the beams.
+                    List<Bearing> Along(List<Bearing> from) => from.Where(bearing =>
                     {
                         var way = (bearing.B - bearing.A).NormalisedOrDefault(Vector2D.UnitX);
                         return Math.Abs(way.Cross(along)) < 0.05 && Line2D.DistanceFromSegment(bearing.A.MidpointTo(bearing.B), a - along * 1e5, b + along * 1e5) <= edge.Overhang + 600;
                     }).ToList();
+                    var under = Along(bearings);
+                    if (under.Count == 0) under = Along(beams);
                     if (under.Count == 0)
                     {
-                        _loading.Problems.Add(new AnalyticalProblem($"Its slope over the eave from ({a.X:0}, {a.Y:0}) bears on nothing in the analytical model: no bearing wall runs under it." + NotBearingAlong(a, b, edge.Overhang + 600, roof.BaseElevation(_document)), new Element[] { roof }));
+                        _loading.Problems.Add(new AnalyticalProblem($"Its slope over the eave from ({a.X:0}, {a.Y:0}) bears on nothing in the analytical model: no bearing wall or beam runs under it." + NotBearingAlong(a, b, edge.Overhang + 600, roof.BaseElevation(_document)), new Element[] { roof }));
                         continue;
                     }
 
@@ -734,17 +752,34 @@ public sealed class StructuralLoading
                     }).Where(each => each.End - each.Start >= 1).ToList();
                     var covered = stretches.Sum(each => each.End - each.Start);
                     if (covered < 1) continue;
-                    var perMetre = area / (covered / 1000);
                     var stretch = face!.Plane.VerticalStretch;
+                    var deepest = face.Outline.Max(point => (point - a).Dot(inward));
+                    var deep = deepest / 1000;
+
+                    // A slope whose top is the roof's own edge - a lean-to's, a porch's, a shed roof's against the wall it leans on - not a ridge
+                    // another slope leans against: its rafters span from the eave to what carries that edge, half the slope on each (round 156).
+                    var top = TopOf(roof, i, along, inward, a, deepest, surface);
+                    var topCovered = top.Sum(each => each.End - each.Start);
+                    var share = topCovered >= 1 ? 0.5 : 1.0;
+                    var perMetre = share * area / (covered / 1000);
                     var placed = stretches.Select(each => (each.Bearing, each.Start, each.End)).ToList();
                     _slopes.Add((new Vector2D(-inward.X, -inward.Y), pitch, perMetre, placed, edge.Overhang, hipped, roof, face));
-                    var deep = face.Outline.Max(point => (point - a).Dot(inward)) / 1000;
                     slopes.Add((new Vector2D(-inward.X, -inward.Y), pitch, perMetre, placed, deep, eave / covered));
-                    foreach (var (bearing, start, end) in stretches)
+                    var sides = new List<(List<(Bearing Bearing, double Start, double End)> On, double PerMetre, string At)> { (placed, perMetre, share < 1 ? ", half of it, at its eave" : string.Empty) };
+                    if (topCovered >= 1)
                     {
-                        Line(_dead, bearing, start, end, perMetre * weight * stretch, $"{perMetre:0.00} m² a metre of the roof at {pitch:0}°, {weight * stretch:0.00} kN/m² on plan");
-                        Line(_roof, bearing, start, end, perMetre * RoofImposed(_document, pitch), _us ? $"Lr at {pitch:0}°" : $"category H at {pitch:0}°");
-                        Line(_snow, bearing, start, end, perMetre * RoofSnow(_document, pitch), SnowSaid(pitch));
+                        var topPerMetre = (1 - share) * area / (topCovered / 1000);
+                        _slopes.Add((new Vector2D(-inward.X, -inward.Y), pitch, topPerMetre, top, 0, hipped, roof, face));
+                        slopes.Add((new Vector2D(-inward.X, -inward.Y), pitch, topPerMetre, top, deep, eave / topCovered));
+                        sides.Add((top, topPerMetre, ", half of it, at its top"));
+                    }
+
+                    foreach (var (on, onPerMetre, at) in sides)
+                    foreach (var (bearing, start, end) in on)
+                    {
+                        Line(_dead, bearing, start, end, onPerMetre * weight * stretch, $"{onPerMetre:0.00} m² a metre of the roof at {pitch:0}°{at}, {weight * stretch:0.00} kN/m² on plan");
+                        Line(_roof, bearing, start, end, onPerMetre * RoofImposed(_document, pitch), _us ? $"Lr at {pitch:0}°" : $"category H at {pitch:0}°");
+                        Line(_snow, bearing, start, end, onPerMetre * RoofSnow(_document, pitch), SnowSaid(pitch));
                     }
                 }
 
@@ -767,6 +802,48 @@ public sealed class StructuralLoading
                 }
             }
         }
+
+        /// <summary>
+        /// What carries the top of a slope whose top is one of the roof's own edges - a boundary edge that sets no slope, along the eave and
+        /// as far in as the slope reaches - rather than a ridge: the walls' tops, else the beams, along that edge within its overhang and
+        /// 600 of it, at the slope's height there, each the stretch of it along the edge. None where the slope rises to a ridge or a hip, or
+        /// nothing is there to carry it.
+        /// </summary>
+        private List<(Bearing Bearing, double Start, double End)> TopOf(Roof roof, int eaveIndex, Vector2D along, Vector2D inward, Point2D a, double deepest, RoofSurface surface)
+        {
+            var count = roof.Boundary.Count;
+            for (var j = 0; j < count; j++)
+            {
+                if (j == eaveIndex || roof.Edges[j].DefinesSlope) continue;
+                var (c, d) = (roof.Boundary[j], roof.Boundary[(j + 1) % count]);
+                var length = c.DistanceTo(d);
+                if (length < 1 || Math.Abs(((d - c) / length).Cross(along)) > 0.05) continue;
+                if (Math.Abs((c - a).Dot(inward) - deepest) > 50 || Math.Abs((d - a).Dot(inward) - deepest) > 50) continue;
+
+                var height = surface.HeightAt(c.MidpointTo(d) - inward * 50);
+                var reach = roof.Edges[j].Overhang + 600;
+                var bearings = BearingsAt(height);
+                List<Bearing> Along(IEnumerable<Bearing> from) => from.Where(bearing =>
+                {
+                    var way = (bearing.B - bearing.A).NormalisedOrDefault(Vector2D.UnitX);
+                    return Math.Abs(way.Cross(along)) < 0.05 && Line2D.DistanceFromSegment(bearing.A.MidpointTo(bearing.B), c - along * 1e5, d + along * 1e5) <= reach;
+                }).ToList();
+                var under = Along(bearings.Where(bearing => bearing.Panel is not null));
+                if (under.Count == 0) under = Along(bearings.Where(bearing => bearing.Member is { Kind: AnalyticalMemberKind.Beam }));
+                return under.Select(bearing =>
+                {
+                    var span = bearing.A.DistanceTo(bearing.B);
+                    var unit = (bearing.B - bearing.A) / Math.Max(span, 1e-9);
+                    var (s0, s1) = ((c - bearing.A).Dot(unit), (d - bearing.A).Dot(unit));
+                    return (Bearing: bearing, Start: Math.Max(0, Math.Min(s0, s1)), End: Math.Min(span, Math.Max(s0, s1)));
+                }).Where(each => each.End - each.Start >= 1).ToList();
+            }
+
+            return new List<(Bearing Bearing, double Start, double End)>();
+        }
+
+        /// <summary>Whether a roof is a dormer's, built by the Dormer tool onto another roof.</summary>
+        private bool IsDormer(Roof roof) => roof.Dormer is not null && roof.JoinedTo is { } main && _document.Find<Roof>(main) is not null;
 
         private readonly List<(Roof Roof, List<(Bearing Bearing, double Start, double End, double Width)> Spread)> _flats = new();
 

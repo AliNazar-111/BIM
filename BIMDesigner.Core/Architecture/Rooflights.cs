@@ -261,7 +261,7 @@ public static class Rooflights
 
     private static bool Named(Room room, params string[] words) => words.Any(word => room.Name.Contains(word, StringComparison.OrdinalIgnoreCase));
 
-    private static bool Circulation(Room room) => Named(room, "hall", "landing", "corridor", "lobby", "stair", "entrance", "porch");
+    private static bool Circulation(Room room) => Named(room, "hall", "landing", "corridor", "lobby", "stair", "entrance", "porch") && !Mep.Ventilation.WetByName(room.Name);
 
     private static double Area(BimDocument document, Room room) => room.GetBoundary(document) is { IsEnclosed: true } boundary ? boundary.Area / 1e6 : 0;
 }

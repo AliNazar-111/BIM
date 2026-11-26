@@ -53,7 +53,19 @@ public static class Ventilation
     public const double LitresPerCfm = 0.4719;
 
     private static readonly string[] NotHabitable =
-        { "hall", "landing", "corridor", "lobby", "porch", "stair", "store", "storage", "cupboard", "airing", "garage", "loft", "plant", "void", "boiler", "cellar", "shed", "bin", "cycle" };
+        { "hall", "landing", "corridor", "lobby", "porch", "stair", "store", "storage", "cupboard", "airing", "garage", "loft", "plant", "void", "boiler", "cellar", "shed", "bin", "cycle",
+          // The US words for them: a closet, a pantry, a foyer or entry, a mechanical room (round 152).
+          "closet", "pantry", "larder", "foyer", "entry", "mechanical" };
+
+    /// <summary>
+    /// Whether a room's name says it is a kitchen, a bathroom, a WC or a utility room, whatever else it says: a "Hall Bath" is a bathroom off the
+    /// hall, not a hall (round 153).
+    /// </summary>
+    public static bool WetByName(string name)
+    {
+        var n = name.ToLowerInvariant();
+        return new[] { "kitchen", "utility", "laundry", "bath", "shower", "en-suite", "ensuite", "wc", "toilet", "cloak" }.Any(n.Contains);
+    }
 
     /// <summary>What a room is for: a kitchen by its sink or cooker, a bathroom by its bath or shower, a WC, a utility room by its machines; otherwise habitable unless its name says it is a hall, a store or the like.</summary>
     public static RoomUse UseOf(BimDocument document, Room room, IReadOnlyList<Point2D> outline)
@@ -68,10 +80,12 @@ public static class Ventilation
 
         var name = room.Name.ToLowerInvariant();
         if (name.Contains("kitchen")) return RoomUse.Kitchen;
-        if (name.Contains("utility")) return RoomUse.Utility;
+        if (name.Contains("utility") || name.Contains("laundry")) return RoomUse.Utility;
         if (name.Contains("bath") || name.Contains("shower") || name.Contains("en-suite") || name.Contains("ensuite")) return RoomUse.Bathroom;
         if (name.Contains("wc") || name.Contains("toilet") || name.Contains("cloak")) return RoomUse.Wc;
-        return NotHabitable.Any(name.Contains) ? RoomUse.Other : RoomUse.Habitable;
+        // A loft is England's roof space; in a US home it is a room open to the floor below, lived or slept in (IRC R202, round 154).
+        var us = document.ProjectInformation.ClearanceStandard.IsUs();
+        return NotHabitable.Any(word => name.Contains(word) && !(us && word == "loft")) ? RoomUse.Other : RoomUse.Habitable;
     }
 
     /// <summary>The rate a wet room is extracted at, l/s, running continuously: Table 1.2's high rate - or in the US Table M1505.4.4's continuous one.</summary>

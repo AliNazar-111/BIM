@@ -481,7 +481,7 @@ public static class ModelMeshBuilder
             if (opening is null || openingType is null || _shows?.Invoke(opening) == false) continue;
 
             var infill = meshes.Count;
-            OpeningModel.Add(wall, planType, opening, openingType, from, to, sill, head, meshes);
+            OpeningModel.Add(wall, planType, opening, openingType, from, to, sill, head, meshes, document.FindLevel(opening.LevelId)?.Elevation);
 
             // A door or window leans with the wall it is in, unless it is set to stand upright:
             // then it stays as it was drawn and the gap against the slanted wall is the user's.
@@ -666,6 +666,14 @@ public static class ModelMeshBuilder
         // takes its material's colour; tinted, frosted, laminated or spandrel glass its own
         // colour and how far it is seen through.
         var panes = new List<Mesh3D>();
+        Mesh3D? marks = null;
+        Mesh3D Marks()
+        {
+            if (marks is not null) return marks;
+            marks = new Mesh3D(wall.Id, wall.LevelId, MeshKind.Mullion, OpeningModel.ManifestationColour, "Manifestation") { Opacity = 0.85 };
+            panes.Add(marks);
+            return marks;
+        }
 
         Mesh3D Glass(CurtainCell cell)
         {
@@ -777,7 +785,18 @@ public static class ModelMeshBuilder
                 foreach (var piece in pieces)
                 {
                     if (cell.Kind == CurtainPanelKind.Glazed)
+                    {
                         AddPane(mesh, wall, body, piece.From, piece.To, pane, bottom + piece.Bottom, bottom + piece.TopFrom, bottom + piece.TopTo);
+
+                        // Marked where the type says so: a band 50 high in each of Approved Document K's two zones over the storey's floor (7.4, round 155).
+                        if (type.Manifestation && cell.Glass is not (CurtainGlass.Frosted or CurtainGlass.Spandrel))
+                        {
+                            var floor = FloorUnder(document, wall, bottom + piece.Bottom);
+                            foreach (var centre in new[] { 925.0, 1500.0 })
+                                if (bottom + piece.Bottom <= floor + centre - 25 && bottom + Math.Min(piece.TopFrom, piece.TopTo) >= floor + centre + 25)
+                                    AddPane(Marks(), wall, body, piece.From, piece.To, pane + 2, floor + centre - 25, floor + centre + 25);
+                        }
+                    }
                     else
                         mesh.AddExtrusion(CurtainGeometry.Band(wall, body, piece.From, piece.To, pane, -pane),
                             _ => bottom + piece.Bottom,
@@ -789,7 +808,7 @@ public static class ModelMeshBuilder
         // The windows themselves, built where they were put and carrying their own ids, so one
         // can be clicked, sized and moved like a window in any other wall.
         foreach (var (opening, openingType, from, to, sill, head) in cut.Where(entry => _shows?.Invoke(entry.Opening) != false))
-            OpeningModel.Add(wall, body, opening, openingType, from, to, bottom + sill, bottom + head, meshes);
+            OpeningModel.Add(wall, body, opening, openingType, from, to, bottom + sill, bottom + head, meshes, document.FindLevel(opening.LevelId)?.Elevation);
 
         // Each mullion in its own type's section and material: a box offset in or out with its
         // cover cap on its face, or a tube - and where two curtain walls meet, the corner mullion
@@ -941,6 +960,13 @@ public static class ModelMeshBuilder
     /// back to a glazed storefront leaf: a slim frame round a pane, with a long pull handle on
     /// each face.
     /// </summary>
+    /// <summary>The floor of the storey a height of a wall is on: the highest level at or under it, no lower than the wall's own.</summary>
+    private static double FloorUnder(BimDocument document, Wall wall, double height)
+    {
+        var own = document.FindLevel(wall.LevelId)?.Elevation ?? 0;
+        return document.Levels.Select(level => level.Elevation).Where(elevation => elevation <= height + 1 && elevation >= own - 1).DefaultIfEmpty(own).Max();
+    }
+
     private static void AddCurtainDoor(
         BimDocument document, Wall wall, WallType body, CurtainCell cell, double bottom,
         List<Mesh3D> meshes, Mesh3D leaf, Mesh3D glass)
@@ -951,7 +977,7 @@ public static class ModelMeshBuilder
         {
             OpeningModel.AddPanelDoor(wall, body, doorType, CurtainPanel.IdOf(wall.Id, cell.Column, cell.Row), wall.LevelId,
                 cell.ClearFrom, cell.ClearTo, bottom + cell.ClearBottom, bottom + cell.ClearTop, meshes,
-                cell.FlipHand, cell.FlipFacing, cell.Glass, cell.IsOpen);
+                cell.FlipHand, cell.FlipFacing, cell.Glass, cell.IsOpen, FloorUnder(document, wall, bottom + cell.ClearBottom));
             return;
         }
 

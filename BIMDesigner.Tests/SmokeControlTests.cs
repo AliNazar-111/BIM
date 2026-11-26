@@ -37,7 +37,7 @@ public class SmokeControlTests
     }
 
     /// <summary>A block's storey: its outside walls (the south first, then east, north and west), and a door from the stair into the corridor beside it.</summary>
-    private sealed record Storey(Level Level, List<Wall> Outside, Room Stair, Room Corridor, Room Flat, Room? EastStair);
+    internal sealed record Storey(Level Level, List<Wall> Outside, Room Stair, Room Corridor, Room Flat, Room? EastStair);
 
     /// <summary>
     /// A block of flats 12 m by 6 m - 15 m with a second stair - on so many storeys 3 m apart. On each: the stair in its enclosure at the west
@@ -45,7 +45,7 @@ public class SmokeControlTests
     /// at x 8 m; with a second stair, another enclosure at the east end, x 12 to 15 m, its door from the corridor at 1 m. Each stair rises north
     /// from each storey to the next.
     /// </summary>
-    private static (BimDocument Document, List<Storey> Storeys) Block(int storeys, bool twoStairs = false, double basement = double.NaN)
+    internal static (BimDocument Document, List<Storey> Storeys) Block(int storeys, bool twoStairs = false, double basement = double.NaN)
     {
         var document = BimDocument.CreateDefault();
         var levels = new List<Level> { document.Levels[0], document.Levels[1] };
@@ -111,7 +111,7 @@ public class SmokeControlTests
         return piece;
     }
 
-    private static List<EscapeProblem> Smoke(BimDocument document) =>
+    internal static List<EscapeProblem> Smoke(BimDocument document) =>
         Escape.Problems(document).Where(problem => problem.Said.Contains("vent") || problem.Said.Contains("smoke")).ToList();
 
     [Fact]

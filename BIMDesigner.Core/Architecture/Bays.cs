@@ -237,8 +237,7 @@ public static class Bays
             var topLevel = hosts[^1].Level;
             var roofType = settings.Roof == BayRoof.Flat
                 ? document.TypesOf<RoofType>().FirstOrDefault(each => each.Name.Contains("Flat", StringComparison.OrdinalIgnoreCase)) ?? document.TypesOf<RoofType>().FirstOrDefault()
-                : document.TypesOf<RoofType>().Where(each => each.Thickness is >= 100 and <= Dormers.MaximumRoofThickness).OrderBy(each => each.Thickness).FirstOrDefault()
-                  ?? document.TypesOf<RoofType>().FirstOrDefault();
+                : Dormers.LightRoofType(document) ?? document.TypesOf<RoofType>().FirstOrDefault();
             if (roofType is not null)
             {
                 var over = settings.Overhang;

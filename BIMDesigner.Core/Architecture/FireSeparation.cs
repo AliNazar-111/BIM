@@ -77,7 +77,7 @@ public static class FireSeparation
 
     private static bool Named(Room room, params string[] words) => words.Any(word => room.Name.Contains(word, StringComparison.OrdinalIgnoreCase));
 
-    internal static bool Circulation(Room room) => Named(room, "hall", "landing", "corridor", "lobby", "stair", "entrance", "porch");
+    internal static bool Circulation(Room room) => Named(room, "hall", "landing", "corridor", "lobby", "stair", "entrance", "porch") && !Mep.Ventilation.WetByName(room.Name);
 
     /// <summary>A room for storing refuse, or a refuse chute's: a bin store, a refuse room (3.55 to 3.58).</summary>
     internal static bool Refuse(Room room) => Named(room, "refuse", "bin store", "bin room", "bins", "waste");
@@ -227,7 +227,9 @@ public static class FireSeparation
     {
         var middle = wall.Start.MidpointTo(wall.End);
         var top = wall.GetTopElevation(document);
-        var floor = document.All<Floor>().Where(slab => slab.Boundary.Count >= 3 && slab.Contains(middle) && slab.GetBottomElevation(document) > top - 1 && slab.GetBottomElevation(document) < top + 6000)
+        // The floor over it: the lowest whose top is up at its top or over it - one its top runs up into, its storey's floor laid on it, it
+        // reaches (round 150: a wall up to the level was taken to stop short of the floor over the one it holds up).
+        var floor = document.All<Floor>().Where(slab => slab.Boundary.Count >= 3 && slab.Contains(middle) && slab.GetTopElevation(document) > top - 1 && slab.GetBottomElevation(document) < top + 6000)
             .Select(slab => slab.GetBottomElevation(document)).DefaultIfEmpty(double.NaN).Min();
         if (!double.IsNaN(floor)) return floor - top > 50 ? (floor - top, false) : null;
 

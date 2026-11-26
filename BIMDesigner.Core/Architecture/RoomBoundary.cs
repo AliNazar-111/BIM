@@ -246,9 +246,20 @@ public static class RoomBoundary
 
     // ---- building the graph ----------------------------------------------------
 
+    /// <summary>
+    /// How far over its level's floor a room is measured, mm: a wall whose base stands higher than this - a dormer's walls on the roof, a
+    /// wall standing on a roof or a beam over the room - does not divide the floor under it (round 149).
+    /// </summary>
+    public const double ComputationHeight = 1200;
+
+    /// <summary>Whether a wall on a level stands up from below the height its rooms are measured at, so that it divides the floor.</summary>
+    private static bool Divides(BimDocument document, Wall wall, Guid levelId) =>
+        wall.BaseAttachedTo is null && wall.BaseOffset <= ComputationHeight
+        || wall.GetBaseElevation(document) - (document.FindLevel(levelId)?.Elevation ?? 0) <= ComputationHeight;
+
     private static List<Segment> Collect(BimDocument document, Guid levelId) =>
         document.Walls
-            .Where(wall => wall.LevelId == levelId && wall.RoomBounding && wall.Length > NodeTolerance)
+            .Where(wall => wall.LevelId == levelId && wall.RoomBounding && wall.Length > NodeTolerance && Divides(document, wall, levelId))
             // And a wall from a level below standing up through this one - the wall between a split-level house's halves (round 143).
             .Concat(SplitLevels.StandingThrough(document, levelId).Where(wall => wall.RoomBounding && wall.Length > NodeTolerance))
             .SelectMany(Pieces)

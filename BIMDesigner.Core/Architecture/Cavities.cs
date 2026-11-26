@@ -230,7 +230,7 @@ public static class Cavities
 
             if (FireDesign.UseOf(document) != BuildingUse.House || !HighHouse(document)) return null;
             var stairs = Doors.StairRooms(document);
-            bool Stairway(Room room) => stairs.Contains(room) || Named(room, "stair", "hall", "landing");
+            bool Stairway(Room room) => stairs.Contains(room) || Named(room, "stair", "hall", "landing") && !Mep.Ventilation.WetByName(room.Name);
             return Stairway(one) != Stairway(other) ? ("the protected stairway", "Approved Document B (2.5, Diagram 2.3)") : null;
         }
 

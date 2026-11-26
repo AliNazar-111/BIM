@@ -126,6 +126,12 @@ public abstract class OpeningType : ElementType
     public bool SafetyGlazing { get; set; }
 
     /// <summary>
+    /// Whether its glass is marked so that it is seen: at two levels, 850 to 1000 and 1400 to 1600 above the floor, contrasting from both
+    /// sides - and, on a glass door beside or in a glazed screen, a high-contrast strip at its top and sides (Approved Document K 7.4, round 155).
+    /// </summary>
+    public bool Manifestation { get; set; }
+
+    /// <summary>
     /// The security standard it is made to, as written - "PAS 24:2016", "LPS 1175 SR2", "STS 204" - what makes an easily accessible door or
     /// window secure (Approved Document Q 1.2, 2.2); empty where none is given.
     /// </summary>
@@ -140,6 +146,7 @@ public abstract class OpeningType : ElementType
         copy.AcousticRating = AcousticRating;
         copy.HeatTransferCoefficient = HeatTransferCoefficient;
         copy.SafetyGlazing = SafetyGlazing;
+        copy.Manifestation = Manifestation;
         copy.Security = Security;
         return copy;
     }
@@ -158,6 +165,7 @@ public abstract class OpeningType : ElementType
         yield return ParameterValue.BindScaled(OpeningTypeParameters.HeatTransferCoefficient, OpeningTypeParameters.UFactor, Units.UFactorPerUValue, 3,
             () => HeatTransferCoefficient, v => { HeatTransferCoefficient = v; return true; });
         yield return ParameterValue.Bind(Units.Imperial ? OpeningTypeParameters.SafetyGlazingUs : OpeningTypeParameters.SafetyGlazing, () => SafetyGlazing, v => SafetyGlazing = v);
+        if (!Units.Imperial) yield return ParameterValue.Bind(OpeningTypeParameters.Manifestation, () => Manifestation, v => Manifestation = v);
     }
 }
 
@@ -482,6 +490,10 @@ public static class OpeningTypeParameters
 
     public static readonly ParameterDefinition SafetyGlazing =
         new("Safety Glazing (BS EN 12600)", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
+
+    /// <summary>Whether its glass is marked at two levels so that it is seen (Approved Document K 7.4).</summary>
+    public static readonly ParameterDefinition Manifestation =
+        new("Manifestation (Approved Document K 7.4)", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
 
     /// <summary>The security standard a door or window is made to (Approved Document Q).</summary>
     public static readonly ParameterDefinition Security =

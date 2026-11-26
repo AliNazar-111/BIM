@@ -111,7 +111,8 @@ public static class OpeningGuarding
         // A divided window opens where its lowest opening light is: a fixed light under a transom
         // with an opener over it opens high - its fixed glass low down is the guarding then.
         var opens = type is WindowType framed && WindowLights.Opens(framed);
-        var sill = opening.SillHeight;
+        // Its sill over the floor: a dormer's window stands as high over the room as its wall stands on the roof (round 149).
+        var sill = Opening.OverFloor(document, wall, opening.SillHeight);
         var openSill = type is WindowType divided && WindowLights.Divided(divided) && WindowLights.LowestOpening(divided) is { } lowest
             ? sill + lowest - WindowRules.Frame
             : sill;

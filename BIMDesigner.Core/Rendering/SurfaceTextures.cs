@@ -105,6 +105,7 @@ public static class SurfaceTextures
         SurfacePattern.BoardAndBatten => BoardAndBatten(finish),
         SurfacePattern.HalfTimbered => HalfTimbered(finish),
         SurfacePattern.BarrelTiles => Barrel(finish),
+        SurfacePattern.Thatch => Thatch(finish),
         SurfacePattern.Shingles => Shingles(finish),
         SurfacePattern.Stucco => Grain(finish, 800, 0.8, 0.07, 0.045, 0.012, 13),
         SurfacePattern.Concrete => Grain(finish, 1200, 0.5, 0.03, 0.05, 0.004, 10),
@@ -474,6 +475,9 @@ public static class SurfaceTextures
             var (fx, fy) = (px / tileW, py / tileH);
             if (xx < seam)
                 canvas.Set(x, y, Times(finish.Colour, xx < seam / 2 ? 1.18 : 0.72), 1);
+            // The seam standing an inch proud throws a shadow on the pan beside it, which is what shows it from a distance (round 154).
+            else if (xx < seam + 2.5 * seam)
+                canvas.Set(x, y, Times(finish.Colour, 0.72 + 0.28 * (xx - seam) / (2.5 * seam)), 0.35);
             else
                 canvas.Set(x, y, Times(finish.Colour, 1 + 0.03 * canning.At(fx, fy) + 0.015 * fine.At(fx, fy)), 0.35);
         }
@@ -520,6 +524,37 @@ public static class SurfaceTextures
         }
 
         return canvas.Done(size, size);
+    }
+
+    /// <summary>
+    /// Thatch (round 151): reed or straw dressed into courses up the slope - its stems seen as fine streaks running down it, darker in the
+    /// hollows between them, each course a faint shadow under the one over it, weathered grey in broad patches. A stem's width and a
+    /// course's height are its units.
+    /// </summary>
+    private static SurfaceTexture Thatch(SurfaceFinish finish)
+    {
+        var (stem, course) = (Math.Max(3, finish.UnitLength), Math.Max(150, finish.UnitHeight));
+        var (tileW, tileH) = (1200.0, Math.Max(1, Math.Round(1200 / course)) * course);
+        var canvas = new Canvas(tileW, tileH, Scale(tileW, tileH, stem, 1536));
+        var patches = new Noise(Cells(tileW, 450), Cells(tileH, 450), 93);
+        var stems = new Noise(Cells(tileW, stem), Cells(tileH, stem * 14), 94);
+        var shadow = course * 0.12;
+        for (var y = 0; y < canvas.H; y++)
+        for (var x = 0; x < canvas.W; x++)
+        {
+            var (px, py) = canvas.Mm(x, y);
+            var (fx, fy) = (px / tileW, py / tileH);
+            var fibre = stems.At(fx, fy);
+            var shade = (1 + 0.22 * fibre) * (1 + 0.08 * patches.At(fx, fy));
+            var yy = Wrap(py, course);
+            if (yy < shadow) shade *= 0.78 + 0.22 * (yy / shadow);
+            var (r, g, b) = Times(finish.Colour, shade);
+            var grey = 0.12 * Math.Max(0, patches.At(fy, fx));
+            var mean = (r + g + b) / 3;
+            canvas.Set(x, y, (r + (mean - r) * grey, g + (mean - g) * grey, b + (mean - b) * grey), 0.2 + 0.3 * (1 + fibre));
+        }
+
+        return canvas.Done(tileW, tileH);
     }
 
     /// <summary>Gravel: stones of their own size and shade, rounded, lying close, the gaps between dark.</summary>

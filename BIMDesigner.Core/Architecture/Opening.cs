@@ -136,6 +136,14 @@ public abstract class Opening : Element, IHostedElement
     /// Where the wall has no room left for it at all - a dormer lowered as far as its roof
     /// makes it - it has no height, and is not drawn, until the wall has room again.
     /// </summary>
+    /// <summary>
+    /// How high a sill set from its wall's base stands over the floor of the wall's storey: the sill, and how far the wall's base stands up off
+    /// its level - a dormer's front wall standing on the roof, a wall set up off its floor (round 149). A wall reaching down below its level - a
+    /// split level's, a basement's - keeps its sill over its own base, the floor it stands on.
+    /// </summary>
+    public static double OverFloor(BimDocument document, Wall wall, double sill) =>
+        sill + Math.Max(0, wall.GetBaseElevation(document) - (document.FindLevel(wall.LevelId)?.Elevation ?? 0));
+
     public (double Sill, double Height) Placed(BimDocument document, OpeningType? type, Wall? wall = null, IReadOnlyList<Point2D>? outline = null)
     {
         var asSet = (SillHeight, HeightOf(type));

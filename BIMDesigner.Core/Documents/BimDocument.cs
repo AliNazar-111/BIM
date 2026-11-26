@@ -546,7 +546,8 @@ public sealed class BimDocument
                          or "Townhouse Area Separation Wall - 2 hr Gypsum Liner Panels" or "Unit Separation Wall - 2x4 Studs, 5/8 in Type X Each Side, 1 hr"
                          or "Wood Frame 2x6 - Board and Batten" or "Wood Frame 2x6 - Cedar Shingles" or "Wood Frame 2x6 - Stucco"
                          or "Half-Timbered - Render on Block 330mm" or "Demising Wall - Staggered Studs, 5/8 in Type X Each Side, 1 hr, STC 51"
-                         or "Stone Wall - Rubble 500mm" or "Stone Wall - Rubble 500mm, Insulated Lining" or "Block Wall - Dense 100mm" } => !wallTypeNames.Contains(type.Name),
+                         or "Stone Wall - Rubble 500mm" or "Stone Wall - Rubble 500mm, Insulated Lining" or "Block Wall - Dense 100mm"
+                         or "Cavity Wall - Brick on Medium Dense Block 315mm" } => !wallTypeNames.Contains(type.Name),
                      StairType { Name: "Stair - Wood, 7 3/4 in Rise, 10 in Tread" or "Stair - Concrete Pan, 7 in Rise, 11 in Tread" } => !_types.Values.Any(own => string.Equals(own.Name, type.Name, StringComparison.OrdinalIgnoreCase)),
                      FloorType { Name: "Floor - Separating Slab, Floating 278mm" or "Floor - 2x10 Joists, 5/8 in Type X Ceiling, 1 hr" } => !_types.Values.Any(own => string.Equals(own.Name, type.Name, StringComparison.OrdinalIgnoreCase)),
                      RoofWindowType => !roofWindowTypes.Contains(type.Name),
@@ -2124,6 +2125,12 @@ public sealed class BimDocument
                 { TypeMark = "C1", Colour = timber, Cost = 460m },
             new ComponentType("Base Unit - 600", BuiltInCategory.Casework, ComponentForm.Counter, 600, 600, 900)
                 { TypeMark = "C2", Colour = timber, Cost = 180m },
+            // A US kitchen's stock base cabinets, in inches: 24 in deep, the counter on them 36 in up, 24 and 36 in wide - a 600 unit is
+            // 23 5/8 in, short of the 24 in of counter the NKBA asks beside a sink (round 153).
+            new ComponentType("Base Cabinet - 24 in", BuiltInCategory.Casework, ComponentForm.Counter, 610, 610, 914)
+                { TypeMark = "C8", Colour = timber, Cost = 190m },
+            new ComponentType("Base Cabinet - 36 in", BuiltInCategory.Casework, ComponentForm.Counter, 914, 610, 914)
+                { TypeMark = "C9", Colour = timber, Cost = 260m },
             // Wall units 720 high and 350 deep with their doors, their undersides 500 over the
             // worktop; a tall larder and a tall housing with the oven at eye level, their tops
             // with the wall units'; and an island, which stands where it is put.
@@ -2291,6 +2298,8 @@ public sealed class BimDocument
                 { TypeMark = "P5", Colour = timber, Cost = 320m, FlowRate = 8 },
             new ComponentType("Sink Unit - 600", BuiltInCategory.PlumbingFixtures, ComponentForm.Sink, 600, 600, 900)
                 { TypeMark = "P6", Colour = timber, Cost = 240m, FlowRate = 8 },
+            new ComponentType("Sink Base - 36 in", BuiltInCategory.PlumbingFixtures, ComponentForm.Sink, 914, 610, 914)
+                { TypeMark = "P23", Colour = timber, Cost = 330m, FlowRate = 8 },
 
             // Showers on a low 45 tray, an enclosure's 8 mm glass 1900 high on it: a tray on its
             // own, a corner one, a sliding door across an alcove, and a walk-in's fixed panel.
@@ -3054,6 +3063,21 @@ public sealed class BimDocument
             Description = "A loadbearing internal wall of dense concrete block, plastered both faces: a masonry house's spine wall, its floor joists bearing on it",
             CoarseScaleFillColour = ColourRgb.FromHex("A9A294"), WrapAtEnds = WallWrapping.Exterior
         };
+        // A block of flats' outside wall (round 150): its inner leaf 100 of 1400 kg/m³ block, 140 kg/m² - past the 120 Approved Document E asks
+        // of an outside wall's inner leaf where a separating wall of type 1.1 or a separating concrete floor meets it (2.39, 3.70), the library's
+        // other brick and block wall's aircrete leaf falling short - and 75 of rigid insulation in its cavity in place of 50, for the heavier
+        // block's lesser warmth: U 0.24.
+        var flatsExterior = new WallType("Cavity Wall - Brick on Medium Dense Block 315mm", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Finish1, brick.Id, 100),
+            new MaterialLayer(LayerFunction.ThermalAir, cavity.Id, 25, wraps: false),
+            new MaterialLayer(LayerFunction.ThermalAir, insulation.Id, 75, wraps: false),
+            new MaterialLayer(LayerFunction.Structure, block.Id, 100),
+            new MaterialLayer(LayerFunction.Finish2, plaster.Id, 15)))
+        {
+            Function = WallFunction.Exterior, TypeMark = "EW10", AssemblyCode = "B2010", FireRating = "120 min", AcousticRating = 53, ThermalResistance = 4.1,
+            HeatTransferCoefficient = 0.24, Cost = 170m, Cavity = CavityClosing.Closers, CoarseScaleFillColour = ColourRgb.FromHex("A8846E"), WrapAtEnds = WallWrapping.Exterior,
+            Description = "An outside cavity wall of brick and 1400 kg/m³ block for a block of flats: its inner leaf 140 kg/m², as Approved Document E asks where separating walls and floors meet it (2.39, 3.70)"
+        };
         // A firefighting shaft's enclosure (Approved Document B Volume 2 Diagram 17.1, round 116): reinforced concrete 200 plastered, REI 120.
         var shaftWall = new WallType("Firefighting Shaft - Reinforced Concrete 200mm", new CompoundStructure(
             new MaterialLayer(LayerFunction.Finish2, plaster.Id, 13),
@@ -3105,7 +3129,14 @@ public sealed class BimDocument
             Density = 1100, ThermalConductivity = 0.7, RoofCovering = "Class A",
             SurfaceColour = ColourRgb.FromHex("4A4A4F"), CutColour = ColourRgb.FromHex("3C3C40"), CostPerCubicMetre = 1500m
         };
-        foreach (var material in new[] { typeX, linerPanel, plywood, frtPlywood, shingles }) document.AddMaterial(material);
+        // Steel standing-seam roof panels, 24 gauge (0.6 mm), prepainted to ASTM A755 as IRC Table R905.10.3(2) asks of steel - a modern
+        // farmhouse's dark metal roof; Class A only on a noncombustible deck (R902.1 exception 2) or as its listing says (round 154).
+        var standingSeam = new Material("Steel, Standing Seam Roof Panels, Prepainted")
+        {
+            Density = 7850, ThermalConductivity = 50,
+            SurfaceColour = ColourRgb.FromHex("2E3134"), CutColour = ColourRgb.FromHex("1F2124"), CostPerCubicMetre = 180000m
+        };
+        foreach (var material in new[] { typeX, linerPanel, plywood, frtPlywood, shingles, standingSeam }) document.AddMaterial(material);
         var areaSeparationWall = new WallType("Townhouse Area Separation Wall - 2 hr Gypsum Liner Panels", new CompoundStructure(
             new MaterialLayer(LayerFunction.Finish1, plasterboard.Id, 12.7),
             new MaterialLayer(LayerFunction.Structure, mineralWool.Id, 89),
@@ -3155,6 +3186,14 @@ public sealed class BimDocument
             new MaterialLayer(LayerFunction.Structure, softwood.Id, 184)))
         {
             TypeMark = "UR1", AssemblyCode = "B1020", Function = SlabFunction.Structural, Cost = 95m, CoarseScaleFillColour = ColourRgb.FromHex("5A5A60")
+        };
+        var metalRoof = new RoofType("Roof - Standing Seam Steel on Plywood, 2x8 Rafters", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Finish1, standingSeam.Id, 0.6),
+            new MaterialLayer(LayerFunction.Substrate, plywood.Id, 15),
+            new MaterialLayer(LayerFunction.Structure, softwood.Id, 184)))
+        {
+            TypeMark = "UR3", AssemblyCode = "B1020", Function = SlabFunction.Structural, Cost = 150m, CoarseScaleFillColour = ColourRgb.FromHex("2E3134"),
+            Description = "IRC R905.10: standing-seam steel panels on solid sheathing, pitched 1/4 in 12 at the least (R905.10.2)"
         };
         var frtShingleRoof = new RoofType("Roof - Asphalt Shingles on FRT Plywood, 2x8 Rafters", new CompoundStructure(
             new MaterialLayer(LayerFunction.Finish1, shingles.Id, 6),
@@ -3235,6 +3274,25 @@ public sealed class BimDocument
             HeatTransferCoefficient = 0.16, Cost = 210m, CoarseScaleFillColour = ColourRgb.FromHex("B8613A"),
             Description = "Curved clay tiles - Spanish or mission, pans and covers - on insulated rafters"
         };
+
+        // Thatch (round 151): water reed, 300 thick on battens over insulated rafters - 0.09 W/mK, the East Anglian Master Thatchers'
+        // Association's figure for water reed; 133 kg/m³, the heaviest thatch wet, 40 kg/m², over its 300; its reaction to fire not
+        // classified, F, and as a roof covering EROOF(t4) unless shown better (Approved Document B 12.9).
+        var thatch = new Material("Thatch, Water Reed")
+        {
+            Density = 133, ThermalConductivity = 0.09, ReactionToFire = "F",
+            SurfaceColour = ColourRgb.FromHex("A88B52"), CutColour = ColourRgb.FromHex("98794A"), CostPerCubicMetre = 600m
+        };
+        document.AddMaterial(thatch);
+        var thatchRoof = new RoofType("Roof - Water Reed Thatch 300mm on Insulated Rafters", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Finish1, thatch.Id, 300),
+            new MaterialLayer(LayerFunction.Structure, insulatedRafters.Id, 150),
+            new MaterialLayer(LayerFunction.Finish2, plasterboard.Id, 12.5)))
+        {
+            TypeMark = "R8", AssemblyCode = "B1020", Function = SlabFunction.Structural, FireRating = "30 min",
+            HeatTransferCoefficient = 0.13, Cost = 260m, CoarseScaleFillColour = ColourRgb.FromHex("A88B52"),
+            Description = "Water reed thatch 300 thick on battens over insulated rafters: EROOF(t4) unless shown better (Approved Document B 12.9); a chimney through it as Approved Document J's Diagram 18 asks"
+        };
         var shutteredDoubleHung = usDoubleHung.Duplicate("Double Hung - 36 x 60 in, Louvred Shutters");
         (shutteredDoubleHung.TypeMark, shutteredDoubleHung.Shutters, shutteredDoubleHung.ShutterFinish, shutteredDoubleHung.Cost) = ("W19", WindowShutters.Louvred, "Painted Black", 760m);
 
@@ -3301,8 +3359,8 @@ public sealed class BimDocument
                      screedFloor, timberFloor, plasterboardCeiling, flatRoof, pitchedRoof,
                      logRound, logD, logSquare, acousticPartition, timberFrame, sidedFrame, warmRoof, loftCeiling, plainTileRoof, interlockingRoof, slopedGlazing,
                      thickenedEdge, edgeBeam, kerb, partyWall, soffitCeiling, densePartyWall, separatingFloor, acousticCeiling, solidSeparating, doubleBoardCeiling, shaftWall,
-                     areaSeparationWall, unitSeparationWall, unitSeparationFloor, shingleRoof, frtShingleRoof, battenWall, shingleWall, stuccoWall,
-                     halfTimberedWall, barrelRoof, shutteredDoubleHung, demisingWall, stoneWall, linedStoneWall, blockPartition
+                     areaSeparationWall, unitSeparationWall, unitSeparationFloor, shingleRoof, metalRoof, frtShingleRoof, battenWall, shingleWall, stuccoWall,
+                     halfTimberedWall, barrelRoof, thatchRoof, shutteredDoubleHung, demisingWall, stoneWall, linedStoneWall, blockPartition, flatsExterior
                  })
         {
             document.AddType(type);

@@ -458,6 +458,33 @@ public static class Beams
     }
 
     /// <summary>
+    /// The longest stretch of a beam between what carries it, mm: from end to end, broken at each column, wall or beam carrying it along the way -
+    /// a porch's beam over its posts spans from post to post (round 153).
+    /// </summary>
+    public static double LongestSpan(BimDocument document, Beam beam)
+    {
+        var length = beam.Length;
+        if (length < 1) return 0;
+        var unit = (beam.End - beam.Start) / length;
+        var line = Line2D.Through(beam.Start, beam.End);
+        var along = new List<double>();
+        foreach (var column in document.All<Column>())
+            along.Add((column.Location - beam.Start).Dot(unit));
+        foreach (var wall in document.Walls)
+            if (Line2D.TryIntersect(line, Line2D.Through(wall.Start, wall.End), out var crossing) && Line2D.DistanceFromSegment(crossing, wall.Start, wall.End) < 1)
+                along.Add((crossing - beam.Start).Dot(unit));
+        foreach (var other in document.All<Beam>().Where(other => !ReferenceEquals(other, beam) && other.Length >= 1))
+            if (Line2D.TryIntersect(line, Line2D.Through(other.Start, other.End), out var crossing) && Line2D.DistanceFromSegment(crossing, other.Start, other.End) < 1)
+                along.Add((crossing - beam.Start).Dot(unit));
+
+        var supports = along.Where(t => t > 1 && t < length - 1).Distinct().Where(t => CarriedBy(document, beam, beam.Start + unit * t) is not null).ToList();
+        supports.Add(0);
+        supports.Add(length);
+        supports.Sort();
+        return Enumerable.Range(1, supports.Count - 1).Max(i => supports[i] - supports[i - 1]);
+    }
+
+    /// <summary>
     /// The lowest its underside comes over a region in plan - a step, a doorway - where it passes
     /// over it, measured where they overlap; none where it does not.
     /// </summary>
@@ -487,11 +514,13 @@ public static class Beams
 
         // Deep enough for its span, as a floor's beams are first sized: a span of about 19 times
         // its depth for solid timber (as TRADA's span tables come out for joists at 400 centres),
-        // 18 for glulam, 20 for steel and concrete. A rule of thumb, not a calculation.
+        // 18 for glulam, 20 for steel and concrete. A rule of thumb, not a calculation. Its span the
+        // longest stretch between what carries it, not its length over posts along it (round 153).
         var type = TypeOf(document, beam);
         var ratio = type.Material switch { BeamMaterial.Timber => 19, BeamMaterial.Glulam => 18, _ => 20 };
-        if (type.Depth > 0 && beam.Length > ratio * type.Depth + 0.5)
-            problems.Add($"It spans {Units.Metres(beam.Length, "0.0")} on a section {Units.Bare(type.Depth)} deep - more than the {ratio} times its depth a floor's {EnumText.Humanise(type.Material).ToLowerInvariant()} beam is first sized at: have an engineer check it, or take a deeper section.");
+        var span = LongestSpan(document, beam);
+        if (type.Depth > 0 && span > ratio * type.Depth + 0.5)
+            problems.Add($"It spans {Units.Metres(span, "0.0")}{(span < beam.Length - 1 ? " between its supports" : string.Empty)} on a section {Units.Bare(type.Depth)} deep - more than the {ratio} times its depth a floor's {EnumText.Humanise(type.Material).ToLowerInvariant()} beam is first sized at: have an engineer check it, or take a deeper section.");
 
         foreach (var door in document.All<Door>())
         {

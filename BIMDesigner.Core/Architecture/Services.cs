@@ -339,11 +339,33 @@ public static class Services
 
         if (us)
         {
+            // NEC 210.70(A)(1): a lighting outlet in every habitable room, kitchen and bathroom; (A)(2) in every hallway, stairway and attached
+            // garage - not a closet, a pantry or a porch (round 152).
+            var kind = Mep.Lighting.KindOf(document, room, boundary.Polygon);
+            var hallway = kind == Mep.LitRoom.Hall && new[] { "hall", "corridor", "passage" }.Any(room.Name.ToLowerInvariant().Contains);
             if (!pieces.Any(entry => entry.Type.Kind == BuiltInCategory.LightingFixtures))
-                said.Add("no light - NEC 210.70 asks for a lighting outlet in every habitable room, kitchen and bathroom");
+            {
+                if (Visitable.Habitable(kind) || kind == Mep.LitRoom.Bathroom || bathroom || wc)
+                    said.Add("no light - NEC 210.70(A)(1) asks for a lighting outlet in every habitable room, kitchen and bathroom");
+                else if (hallway || kind is Mep.LitRoom.Stairs || Doors.Garage(document, room))
+                    said.Add("no light - NEC 210.70(A)(2) asks for a lighting outlet in every hallway, stairway and attached garage");
+            }
 
-            if (!bathroom && !wc && ShortWallSpaces(document, room, boundary.Polygon, pieces) is > 0 and var spaces)
+            // NEC 210.52(A): the dwelling's living spaces - kitchen, living, dining and family rooms, dens, bedrooms - not its bathrooms, hallways,
+            // laundry or garage, which (D), (H), (F) and (G) take; a garage one receptacle at least, a hallway 10 ft long or more one (round 152).
+            var receptacles = pieces.Count(entry => entry.Type.Form == ComponentForm.Socket);
+            if (!bathroom && !wc && Visitable.Habitable(kind) && ShortWallSpaces(document, room, boundary.Polygon, pieces) is > 0 and var spaces)
                 said.Add($"{spaces} wall {(spaces == 1 ? "space" : "spaces")} with a point more than 6 ft{Units.MetricAside("1829")} from a receptacle - NEC 210.52(A) asks for none");
+            // NEC 210.52(F): a receptacle where the laundry goes, within 6 ft of the washer (210.50(C)) - a washer in the garage or a laundry
+            // room alike (round 154).
+            var washers = pieces.Where(entry => entry.Type.Form == ComponentForm.WashingMachine).ToList();
+            if (washers.Count > 0 && !pieces.Where(entry => entry.Type.Form == ComponentForm.Socket)
+                    .Any(socket => washers.Any(washer => socket.Piece.Location.DistanceTo(washer.Piece.Location) <= 1829 + 0.5)))
+                said.Add($"no receptacle within 6 ft{Units.MetricAside("1829")} of the washer - NEC 210.52(F) asks for one where the laundry goes, 210.50(C) within 6 ft of it");
+            if (Doors.Garage(document, room) && receptacles == 0)
+                said.Add("no receptacle - NEC 210.52(G)(1) asks for one at least in an attached garage, where its cars park");
+            else if (hallway && receptacles == 0 && Enumerable.Range(0, boundary.Polygon.Count).Max(i => boundary.Polygon[i].DistanceTo(boundary.Polygon[(i + 1) % boundary.Polygon.Count])) >= 3048 - 0.5)
+                said.Add($"no receptacle - NEC 210.52(H) asks for one in a hallway 10 ft{Units.MetricAside("3048")} long or more");
         }
 
         // The light its lights give, against what the room is lit to.

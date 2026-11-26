@@ -1,5 +1,6 @@
 using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Geometry;
+using BIMDesigner.Core.Materials;
 
 namespace BIMDesigner.Core.Architecture;
 
@@ -111,6 +112,17 @@ public static class SlabRules
     {
         if (type.Structure.Layers.Count == 0 || document.FindMaterial(type.Structure.Layers[0].MaterialId)?.Name is not { } name) return null;
         bool Has(string word) => name.Contains(word, StringComparison.OrdinalIgnoreCase);
+
+        // Metal (round 154): standing-seam panels 1/4 in 12, lapped nonsoldered panels 3 in 12 - 1/2 in 12 with applied lap sealant, which a
+        // name saying so has - (R905.10.2); metal roof shingles 3 in 12 (R905.4.2).
+        if (new[] { "steel", "metal", "copper", "zinc", "aluminum", "aluminium", "terne" }.Any(Has))
+        {
+            if (Has("shingle")) return (3, "metal roof shingles", "R905.4.2");
+            if (Has("standing seam") || Has("standing-seam")) return (0.25, "standing-seam metal panels", "R905.10.2");
+            if (Has("sealant")) return (0.5, "lapped metal panels with lap sealant", "R905.10.2");
+            if (Has("panel") || Has("sheet") || Has("corrugated") || Has("ribbed") || Has("lapped")) return (3, "lapped metal panels", "R905.10.2");
+        }
+
         if (Has("slate")) return (4, "slate", "R905.6.2");
         if (Has("tile")) return (2.5, "clay or concrete tile", "R905.3.2");
         if (Has("shake") || Has("shingle") && (Has("wood") || Has("cedar"))) return (3, "wood shingles or shakes", "R905.7.1");
@@ -137,11 +149,17 @@ public static class SlabRules
         {
             if (slab is Roof { SlopeDegrees: > 0.5 } sloped && document.FindType<RoofType>(sloped.TypeId) is { } usType && IrcCoveringSlope(document, usType) is var (rise, usCovering, section)
                 && Math.Tan(sloped.SlopeDegrees * Math.PI / 180) * 12 < rise - 0.01)
-                Add($"it is pitched {Math.Tan(sloped.SlopeDegrees * Math.PI / 180) * 12:0.#} in 12, too flat for {usCovering}.", $"The IRC ({section}) lays {usCovering} at {rise:0.#} in 12 at the least.");
+                Add($"it is pitched {(Math.Tan(sloped.SlopeDegrees * Math.PI / 180) * 12 is var pitched && pitched >= 1 ? pitched.ToString("0.#") : pitched.ToString("0.##"))} in 12, too flat for {usCovering}.", $"The IRC ({section}) lays {usCovering} at {Inches(rise)} in 12 at the least.");
 
             // Between the dwelling units of a two-family dwelling (IRC R302.3, round 140).
             if (slab is Floor units)
+            {
                 foreach (var (said, rule) in UnitSeparation.Problems(document, units, type).Concat(Apartments.Problems(document, units, type))) Add(said, rule);
+                if (GarageCeiling(document, units, type) is { } over)
+                    Add($"it is the floor of {over} over a garage, with no 5/8 in{Units.MetricAside("15.9")} Type X gypsum board under it, nor a ceiling of it in the garage.",
+                        "The IRC (Table R302.6) asks for 5/8 in Type X gypsum board, or its equal, between a garage and the habitable rooms over it.");
+            }
+
             return problems;
         }
 
@@ -217,6 +235,56 @@ public static class SlabRules
         }
 
         return problems;
+    }
+
+    /// <summary>
+    /// A floor with habitable rooms on it over a garage - the rooms named - where neither the floor has 5/8 in Type X gypsum board under its
+    /// structure nor a ceiling in the garage has it (IRC Table R302.6, round 152); none where it has, or no garage is under a habitable room.
+    /// </summary>
+    private static string? GarageCeiling(BimDocument document, Floor floor, SlabType type)
+    {
+        if (document.FindLevel(floor.LevelId) is not { } level) return null;
+        var below = document.Levels.Where(each => each.Elevation < level.Elevation - 1).OrderByDescending(each => each.Elevation).FirstOrDefault();
+        if (below is null) return null;
+        var garages = document.All<Room>()
+            .Where(room => room.LevelId == below.Id && floor.Contains(room.Location) && Doors.Garage(document, room))
+            .Select(room => room.GetBoundary(document)).Where(boundary => boundary.IsEnclosed && boundary.Polygon.Count >= 3).Select(boundary => boundary.Polygon).ToList();
+        if (garages.Count == 0) return null;
+
+        // The habitable rooms on the floor that stand over a garage: either holding a point of the other well inside it.
+        static bool Over(IReadOnlyList<Point2D> one, IReadOnlyList<Point2D> other) =>
+            other.Any(point => Polygon2D.Contains(one, point) && Enumerable.Range(0, one.Count).Min(i => Line2D.DistanceFromSegment(point, one[i], one[(i + 1) % one.Count])) > 300)
+            || Polygon2D.Contains(one, new Point2D(other.Average(point => point.X), other.Average(point => point.Y)));
+        var over = document.All<Room>()
+            .Where(room => room.LevelId == level.Id && floor.Contains(room.Location) && Visitable.Habitable(document, room)
+                           && room.GetBoundary(document) is { IsEnclosed: true } boundary && garages.Any(garage => Over(garage, boundary.Polygon) || Over(boundary.Polygon, garage)))
+            .Select(room => room.Name).ToList();
+        if (over.Count == 0) return null;
+
+        if (TypeX(document, type, under: true)) return null;
+        var ceilings = document.All<Ceiling>().Where(ceiling => ceiling.LevelId == below.Id && document.FindType<SlabType>(ceiling.TypeId) is { } ceilingType && TypeX(document, ceilingType, under: false)).ToList();
+        if (garages.All(garage => ceilings.Any(ceiling => ceiling.Contains(new Point2D(garage.Average(point => point.X), garage.Average(point => point.Y)))))) return null;
+        return string.Join(" and ", over.Distinct());
+    }
+
+    /// <summary>Whether a type has 5/8 in Type X gypsum board: a floor's under its structure, a ceiling's anywhere.</summary>
+    private static bool TypeX(BimDocument document, SlabType type, bool under)
+    {
+        var layers = type.Structure.Layers;
+        var from = under ? layers.ToList().FindLastIndex(layer => layer.Function == LayerFunction.Structure) + 1 : 0;
+        return layers.Skip(from).Any(layer => layer.Thickness >= 15.8 && document.FindMaterial(layer.MaterialId)?.Name is { } name
+            && name.Contains("gypsum", StringComparison.OrdinalIgnoreCase) && name.Contains("type x", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>A rise in 12 as the IRC writes it: 1/4, 1/2, 2 1/2, 4.</summary>
+    private static string Inches(double rise)
+    {
+        var whole = Math.Floor(rise + 1e-9);
+        var part = rise - whole;
+        var fraction = Math.Abs(part - 0.25) < 1e-6 ? "1/4" : Math.Abs(part - 0.5) < 1e-6 ? "1/2" : Math.Abs(part - 0.75) < 1e-6 ? "3/4" : null;
+        if (part < 1e-6) return $"{whole:0}";
+        if (fraction is null) return $"{rise:0.##}";
+        return whole > 0 ? $"{whole:0} {fraction}" : fraction;
     }
 
     /// <summary>What a floor or roof comes to as its rules see it.</summary>

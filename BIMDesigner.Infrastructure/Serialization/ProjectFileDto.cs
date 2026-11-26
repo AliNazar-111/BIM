@@ -1832,6 +1832,9 @@ internal sealed class CurtainWallTypeDto
     public double? HeatTransferCoefficient { get; set; }
     public bool? SafetyGlazing { get; set; }
 
+    /// <summary>Whether its glass is marked (Approved Document K 7.4); none in a file from before.</summary>
+    public bool? Manifestation { get; set; }
+
     /// <summary>The mullion type on each line: none saved, its own mullion; an empty id, none there. Absent in older files.</summary>
     public Guid? InteriorVertical { get; set; }
     public Guid? BorderVerticalStart { get; set; }
@@ -2003,6 +2006,9 @@ internal abstract class OpeningTypeDto
 
     /// <summary>Whether its glass is safety glass; none in a file from before.</summary>
     public bool? SafetyGlazing { get; set; }
+
+    /// <summary>Whether its glass is marked (Approved Document K 7.4); none in a file from before, or where it is not.</summary>
+    public bool? Manifestation { get; set; }
 
     /// <summary>The security standard it is made to; none in a file from before, or where none is given.</summary>
     public string? Security { get; set; }

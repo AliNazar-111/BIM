@@ -36,7 +36,8 @@ public readonly partial record struct UsRoofClass(int Rank)
     public static (UsRoofClass Class, string By)? Typical(string name, bool noncombustibleDeck)
     {
         bool Has(params string[] words) => words.Any(word => name.Contains(word, StringComparison.OrdinalIgnoreCase));
-        if (Has("shingle", "shake", "felt", "membrane", "bitumen", "asphalt", "pvc", "plastic", "epdm", "tpo", "polycarbonate", "thatch")) return null;
+        var metal = Has("metal", "steel", "copper", "zinc", "aluminum", "aluminium", "terne", "ferrous");
+        if (Has("felt", "membrane", "bitumen", "asphalt", "pvc", "plastic", "epdm", "tpo", "polycarbonate", "thatch") || !metal && Has("shingle", "shake")) return null;
         if (Has("slate")) return (A, "slate, IRC R902.1 exception 4");
         if (Has("brick", "masonry", "concrete deck")) return (A, "brick, masonry or concrete, IRC R902.1 exception 1");
         if (noncombustibleDeck && Has("tile", "metal", "steel", "copper", "zinc", "aluminum", "aluminium"))

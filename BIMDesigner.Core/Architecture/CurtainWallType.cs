@@ -281,6 +281,9 @@ public sealed class CurtainWallType : ElementType
     /// <summary>Whether its glass is safety glass - toughened or laminated - as glass low in a wall must be (Approved Document K; IRC R308).</summary>
     public bool SafetyGlazing { get; set; } = true;
 
+    /// <summary>Whether its glass is marked at two levels so that it is seen, 850 to 1000 and 1400 to 1600 above the floor (Approved Document K 7.4, round 155).</summary>
+    public bool Manifestation { get; set; }
+
     /// <summary>A new type with this one's settings, to change without touching any wall of this type.</summary>
     public CurtainWallType Duplicate(string name) => new(name)
     {
@@ -324,7 +327,8 @@ public sealed class CurtainWallType : ElementType
         AutomaticallyEmbed = AutomaticallyEmbed,
         CoarseScaleFillColour = CoarseScaleFillColour,
         HeatTransferCoefficient = HeatTransferCoefficient,
-        SafetyGlazing = SafetyGlazing
+        SafetyGlazing = SafetyGlazing,
+        Manifestation = Manifestation
     };
 
     /// <summary>Copies every setting of another type onto this one, keeping its own id. For undo.</summary>
@@ -365,6 +369,7 @@ public sealed class CurtainWallType : ElementType
         AutomaticallyEmbed = other.AutomaticallyEmbed;
         HeatTransferCoefficient = other.HeatTransferCoefficient;
         SafetyGlazing = other.SafetyGlazing;
+        Manifestation = other.Manifestation;
     }
 
     /// <summary>What is wrong with these settings, or null if a wall can be built from them.</summary>
@@ -439,6 +444,7 @@ public sealed class CurtainWallType : ElementType
         yield return ParameterValue.BindScaled(WallTypeParameters.HeatTransferCoefficient, OpeningTypeParameters.UFactor, Units.UFactorPerUValue, 3,
             () => HeatTransferCoefficient, v => { if (v < 0) return false; HeatTransferCoefficient = v; return true; });
         yield return ParameterValue.Bind(Units.Imperial ? OpeningTypeParameters.SafetyGlazingUs : OpeningTypeParameters.SafetyGlazing, () => SafetyGlazing, v => SafetyGlazing = v);
+        if (!Units.Imperial) yield return ParameterValue.Bind(OpeningTypeParameters.Manifestation, () => Manifestation, v => Manifestation = v);
     }
 
     private static string GridText(CurtainGridLayout layout, double spacing, int count) => layout switch

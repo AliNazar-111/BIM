@@ -405,7 +405,7 @@ public static class Overheating
         if (element is RoofWindow) return true;
         if (element is not Opening opening || document.Find<Wall>(opening.HostWallId) is not { } wall || document.FindType<OpeningType>(opening.TypeId) is not { } type) return false;
         var lowest = type is WindowType window ? WindowLights.LowestOpening(window) ?? 0 : 0;
-        if (opening.SillHeight + lowest >= 1100) return true;
+        if (Opening.OverFloor(document, wall, opening.SillHeight) + lowest >= 1100) return true;
         var centre = opening.GetCentre(wall);
         return document.All<Railing>().Any(railing => railing.LevelId == wall.LevelId
             && document.FindType<RailingType>(railing.TypeId) is { Height: >= 1100 }

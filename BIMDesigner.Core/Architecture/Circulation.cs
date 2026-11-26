@@ -299,6 +299,7 @@ public static class Circulation
     /// </summary>
     public static string? Verdict(BimDocument document, Room room)
     {
+        if (document.ProjectInformation.ClearanceStandard.IsUs()) return UsHallway(document, room);
         if (!Applies(document)) return null;
         var (outlines, doors) = Plan(document);
         if (!outlines.TryGetValue(room, out var outline)) return null;
@@ -314,6 +315,23 @@ public static class Circulation
 
         var said = $"Corridor: {measured.Width / 1000:0.00} m clear at its narrowest, {measured.Length / 1000:0.0} m long{(measured.Passing ? ", a passing place in it" : string.Empty)}";
         return wanting.Count == 0 ? said : $"{said}; {string.Join("; ", wanting)}";
+    }
+
+    /// <summary>The IRC's least width of a hallway, mm: 3 ft (R311.6).</summary>
+    public const double UsHallwayWidth = 914;
+
+    /// <summary>
+    /// A US home's hallway - a room named a hall, hallway, corridor or passage - and its clear width at its narrowest, the fittings standing in
+    /// it taken off: 3 ft at least (IRC R311.6, round 152). Not an apartment building's common corridor, which is the IBC's.
+    /// </summary>
+    private static string? UsHallway(BimDocument document, Room room)
+    {
+        if (!Domestic.Rules(document, room) || !Named(room, "hall", "corridor", "passage") || Apartments.Applies(document) && Apartments.Common(document, room)) return null;
+        // Not a bathroom named for the hall it opens off - a "Hall Bath" (round 153).
+        if (room.GetBoundary(document) is not { IsEnclosed: true } boundary || Mep.Lighting.KindOf(document, room, boundary.Polygon) != Mep.LitRoom.Hall) return null;
+        if (Measure(document, room) is not { } measured) return null;
+        var said = $"Hallway: {Units.Bare(measured.Width)} clear at its narrowest";
+        return measured.Width < UsHallwayWidth - 0.5 ? $"{said}; the IRC (R311.6) asks a hallway 3 ft{Units.MetricAside("914")} wide at least" : said;
     }
 
     // --- Lobbies (3.16, 2.29, Diagram 10) ----------------------------------------------

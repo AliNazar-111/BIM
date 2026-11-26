@@ -163,7 +163,8 @@ public static partial class Escape
 
         var outline = plan.Outlines[room];
         var floor = document.FindLevel(room.LevelId)?.Elevation ?? 0;
-        var next = document.Levels.Where(level => level.Elevation > floor + 1).Select(level => level.Elevation).DefaultIfEmpty(double.MaxValue).Min();
+        // Under the next storey up - one with rooms or a floor on it, not a datum such as the roof level a pitched roof rises past (round 150).
+        var next = WindowRules.NextStoreyAbove(document, floor);
         foreach (var window in document.All<RoofWindow>())
             if (RoofWindows.Frame(document, window) is { } frame && Polygon2D.Contains(outline, frame.Centre) && frame.Corners.Min(frame.Top) is var low && low > floor + 1 && low < next
                 && SmokeVents.Of(document, window) is { } vent)

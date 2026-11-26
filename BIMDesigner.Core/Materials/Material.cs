@@ -207,7 +207,10 @@ public enum SurfacePattern
     HalfTimbered,
 
     /// <summary>Curved clay tiles - Spanish, mission, barrel: pans and covers in rows down the slope (round 142).</summary>
-    BarrelTiles
+    BarrelTiles,
+
+    /// <summary>Thatch, water reed or straw: its stems running down the slope, dressed in courses up it (round 151).</summary>
+    Thatch
 }
 
 /// <summary>A face's look: its colour, pattern, units and joints, and its reflection.</summary>

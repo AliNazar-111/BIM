@@ -82,7 +82,7 @@ public static partial class Escape
         var problems = new List<EscapeProblem>();
         double Above(Room room) => (document.FindLevel(room.LevelId)?.Elevation ?? 0) - ground;
         bool Circulation(Room room) => stairRooms.Contains(room) || Lighting.KindOf(document, room, rooms[room]) is LitRoom.Hall or LitRoom.Stairs
-                                      || Named(room, "hall", "landing", "corridor", "lobby", "stair", "entrance", "porch");
+                                      || Named(room, "hall", "landing", "corridor", "lobby", "stair", "entrance", "porch") && !Mep.Ventilation.WetByName(room.Name);
         var plan = new Plan(document, rooms, links, Flights(document, rooms), Circulation, Above);
 
         // The homes: each dwelling named, or - none named - the house; their rooms storey by storey. A building other than a dwelling with no

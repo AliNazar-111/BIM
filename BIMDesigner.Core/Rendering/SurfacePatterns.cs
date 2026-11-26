@@ -42,6 +42,9 @@ public static class SurfacePatterns
         // across, 330 to the weather (round 142).
         SurfacePattern.HalfTimbered => (900, 3000, 180, new ColourRgb(0x2B, 0x22, 0x1C)),
         SurfacePattern.BarrelTiles => (230, 330, 0, null),
+
+        // Thatch: stems 6 across, in courses about 300 up the slope (round 151).
+        SurfacePattern.Thatch => (6, 300, 0, null),
         _ => (0, 0, 0, null)
     };
 
@@ -63,6 +66,7 @@ public static class SurfacePatterns
 
         // Stucco; board and batten; shingles and shakes - asphalt ones a roof's 3-tab strip cut to 333 tabs, 143 to the weather - not the
         // shingle of a beach, which is gravel (round 141).
+        if (Has("thatch")) return Standard(SurfacePattern.Thatch, colour);
         if (Has("half-timber", "half timber", "tudor")) return Standard(SurfacePattern.HalfTimbered, colour);
         if (Has("tile") && Has("barrel", "spanish", "mission", "curved")) return Standard(SurfacePattern.BarrelTiles, colour);
         if (Has("stucco", "exterior plaster")) return Standard(SurfacePattern.Stucco, colour);

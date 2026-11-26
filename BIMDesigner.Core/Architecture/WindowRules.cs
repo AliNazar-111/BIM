@@ -177,13 +177,22 @@ public static class WindowRules
     public static IReadOnlyList<RoofWindowFrame> RoofWindowsOver(BimDocument document, Room room, IReadOnlyList<Point2D> outline)
     {
         var floor = document.FindLevel(room.LevelId)?.Elevation ?? 0;
-        var next = document.Levels.Where(level => level.Elevation > floor + 1).Select(level => level.Elevation).DefaultIfEmpty(floor + 6000).Min();
+        var next = NextStoreyAbove(document, floor);
         return document.All<RoofWindow>()
             .Select(window => RoofWindows.Frame(document, window))
             .OfType<RoofWindowFrame>()
             .Where(frame => Polygon2D.Contains(outline, frame.Centre) && frame.Corners.Min(frame.Top) is var low && low > floor + 1 && low < next)
             .ToList();
     }
+
+    /// <summary>
+    /// The floor of the next storey up from a floor, project elevation: the next level with rooms or a floor on it - not a datum such as the
+    /// roof level the New Project steps draw, which a pitched roof's windows rise past (round 151); none, no limit.
+    /// </summary>
+    public static double NextStoreyAbove(BimDocument document, double floor) =>
+        document.Levels.Where(level => level.Elevation > floor + 1
+                && (document.All<Room>().Any(other => other.LevelId == level.Id) || document.All<Floor>().Any(slab => slab.LevelId == level.Id)))
+            .Select(level => level.Elevation).DefaultIfEmpty(double.MaxValue).Min();
 
     /// <summary>The windows of a room - in its walls - with their types and sills, and the room's external doors.</summary>
     public static (List<(Window Window, WindowType Type, double Sill)> Windows, List<(Door Door, DoorType Type)> Doors) Of(BimDocument document, Room room, IReadOnlyList<Point2D> outline)
@@ -199,7 +208,7 @@ public static class WindowRules
             if (!new[] { reach, -reach }.Any(side => Polygon2D.Contains(outline, wall.PointAt(wallType.Structure, opening.DistanceAlongWall, side)))) continue;
 
             if (opening is Window window && document.FindType<WindowType>(window.TypeId) is { } type)
-                windows.Add((window, type, window.Placed(document, type, wall).Sill));
+                windows.Add((window, type, Architecture.Opening.OverFloor(document, wall, window.Placed(document, type, wall).Sill)));
             else if (opening is Door door && document.FindType<DoorType>(door.TypeId) is { } doorType && Architecture.Doors.External(document, door, doorType))
                 doors.Add((door, doorType));
         }
@@ -220,7 +229,9 @@ public static class WindowRules
 
         var us = standard.IsUs();
         var (from, to) = window.GetSpan(type);
-        var (sill, height) = window.Placed(document, type, wall);
+        var (placed, height) = window.Placed(document, type, wall);
+        // Over the floor, not over its wall's base: a dormer's window stands as high as its wall does on the roof (round 149).
+        var sill = Architecture.Opening.OverFloor(document, wall, placed);
         var half = wallType.Structure.TotalWidth / 2;
         var outline = CurtainGeometry.Band(wall, wallType, from, to, half + 100, -half - 100);
         var problems = new List<PlacementProblem>();
@@ -246,8 +257,13 @@ public static class WindowRules
                     ? WindowLights.Of(type).Where(light => light.Area > 836000 && sill + light.Bottom < 457 && sill + light.Top > 914)
                         .Select(light => (light.Area / 1e6, sill + light.Bottom)).FirstOrDefault()
                     : pane > 0.836 && glassBottom < 457 && sill + height - Frame > 914 ? (pane, glassBottom) : (0.0, 0.0);
+                // A bath or shower the window's own room holds - not one beyond a wall from it (round 152); with no room drawn, any.
+                var serving = new[] { half + 150, -half - 150 }
+                    .Select(side => RoomsOf.Containing(document, wall.LevelId, wall.PointAt(wallType.Structure, window.DistanceAlongWall, side)))
+                    .OfType<Room>().Select(room => room.GetBoundary(document)).Where(boundary => boundary.IsEnclosed).Select(boundary => boundary.Polygon).ToList();
                 var wet = document.All<Component>()
                     .Where(piece => piece.LevelId == wall.LevelId && document.FindType<ComponentType>(piece.TypeId)?.Form is ComponentForm.Bath or ComponentForm.Shower)
+                    .Where(piece => serving.Count == 0 || serving.Any(polygon => Polygon2D.Contains(polygon, piece.Location)))
                     .Select(piece => Kitchens.Apart(ComponentModel.Footprint(document.FindType<ComponentType>(piece.TypeId)!, ComponentModel.FrameOf(piece, 0)), outline))
                     .DefaultIfEmpty(double.MaxValue)
                     .Min();
@@ -263,6 +279,12 @@ public static class WindowRules
             else if (nearDoor <= 300 && glassBottom < 1500)
                 Add($"its glass is {nearDoor:0} from a door's edge, {glassBottom:0} off the floor.", "Approved Document K (Diagram 5.1) makes glass within 300 of a door's edge and below 1500 a critical location: safety glass to BS EN 12600.");
         }
+
+        // Large uninterrupted glass marked so that it is seen, in a building other than a dwelling: each light a pane over the floor (Approved
+        // Document K K5.2, 7.4, round 155).
+        if (!us && !type.Manifestation && Manifestation.Transparent(type.GlazingType) && !Domestic.Rules(document, window)
+            && Manifestation.Unmarked(WindowLights.Of(type).Select(light => (light.Width, sill + light.Bottom, sill + light.Top))) is { } unmarked)
+            Add(Manifestation.Said(unmarked), Manifestation.Rule);
 
         // Approved Document L Volume 2 sets no limit for a display window (Table 4.1, note 10).
         var home = us || Domestic.Rules(document, window);
@@ -376,7 +398,9 @@ public static class WindowRules
         // habitable room (Approved Document B Appendix A, Approved Document F, IRC R202) - no escape window, no purge air, and in the US no
         // light, asked of it (round 147).
         var kind = Mep.Lighting.KindOf(document, room, boundary.Polygon);
-        var habitable = kind is not (Mep.LitRoom.Hall or Mep.LitRoom.Stairs or Mep.LitRoom.Bathroom or Mep.LitRoom.Utility or Mep.LitRoom.Garage);
+        // Living, sleeping, eating or cooking - not a closet, a store or a cupboard either, which IRC R202 and Approved Document F leave out
+        // with halls and bathrooms (round 154).
+        var habitable = Visitable.Habitable(kind);
 
         // A home's room - or, in a building other than a dwelling, one judged by Approved Document F Volume 2 (round 118): no escape window, which
         // Approved Document B Volume 2 does not ask, and no principal window or purge by Volume 1.
@@ -424,9 +448,20 @@ public static class WindowRules
             return said.Count == 0 ? null : $"Windows: {string.Join("; ", said)}";
         var open = windows.Sum(entry => OpenArea(entry.Type)) + doors.Sum(entry => entry.Type.Width * entry.Type.Height / 1e6);
         var wide = windows.Sum(entry => OpenAreas(entry.Type).Fully) + doors.Sum(entry => entry.Type.Width * entry.Type.Height / 1e6);
+
+        // Roof windows over it are windows too (round 151): one hung at its top swung wide open, one turning on its middle taken as opening part
+        // way - Approved Document F's Table 1.4 asks a twentieth through a window opening 30 degrees or more, a tenth through one opening less.
+        var roofWindows = RoofWindowsOver(document, room, boundary.Polygon).Where(frame => frame.Type.Operation != RoofWindowOperation.Fixed).ToList();
+        foreach (var frame in roofWindows)
+        {
+            var sash = Math.Max(0, frame.Type.Width - 2 * frame.Type.FrameWidth) * Math.Max(0, frame.Type.Height - 2 * frame.Type.FrameWidth) / 1e6;
+            open += sash;
+            if (frame.Type.Operation == RoofWindowOperation.TopHung) wide += sash;
+        }
         if (us)
         {
-            var glass = windows.Sum(entry => GlassArea(entry.Type)) + doors.Where(entry => Architecture.Doors.Glazed(entry.Type)).Sum(entry => Math.Max(0, entry.Type.Width - 200) * Math.Max(0, entry.Type.Height - 200) / 1e6 * 0.6);
+            var glass = windows.Sum(entry => GlassArea(entry.Type)) + doors.Where(entry => Architecture.Doors.Glazed(entry.Type)).Sum(entry => Math.Max(0, entry.Type.Width - 200) * Math.Max(0, entry.Type.Height - 200) / 1e6 * 0.6)
+                        + RoofWindowsOver(document, room, boundary.Polygon).Sum(frame => Math.Max(0, frame.Type.Width - 2 * frame.Type.FrameWidth) * Math.Max(0, frame.Type.Height - 2 * frame.Type.FrameWidth) / 1e6);
             if (glass < floor * 0.08 - 1e-6)
             {
                 var (has, asks) = Apart(glass, floor * 0.08);

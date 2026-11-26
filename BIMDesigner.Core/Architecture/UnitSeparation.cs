@@ -77,12 +77,32 @@ public static class UnitSeparation
         if (words.Contains("duplex") || words.Contains("two") && words.Contains("family") || words.Contains("semi") || words.Contains("semidetached"))
             return UnitKind.TwoFamily;
 
+        // A detached house, a single-family one, is one dwelling whatever walls it has - a 1-hour wall to its garage among them (round 152).
+        if (words.Contains("detached") || words.Contains("single") && words.Contains("family")) return UnitKind.None;
+
         var named = Dwellings.Named(document).Count;
         if (named >= 3) return UnitKind.Townhouse;
         if (named == 2) return UnitKind.TwoFamily;
         var lines = Separations(document);
         if (lines >= 2) return UnitKind.Townhouse;
-        return lines == 1 || document.All<Floor>().Any(floor => document.FindType<SlabType>(floor.TypeId) is { Separating: true }) ? UnitKind.TwoFamily : UnitKind.None;
+        return lines == 1 || document.All<Floor>().Any(floor => document.FindType<SlabType>(floor.TypeId) is { Separating: true } && !OverGarage(document, floor)) ? UnitKind.TwoFamily : UnitKind.None;
+    }
+
+    /// <summary>Whether a wall has a garage on either side of it.</summary>
+    private static bool BesideGarage(BimDocument document, Wall wall) =>
+        WallRules.RoomsBeside(document, wall) is var (one, other) && (one is not null && Doors.Garage(document, one) || other is not null && Doors.Garage(document, other));
+
+    /// <summary>
+    /// Whether a floor is over a garage and nothing else: the rooms on the storey under it, within it, all garages - a builder's 1-hour floor
+    /// over one, its 5/8 in Type X ceiling the board Table R302.6 asks there, parting no dwelling units (round 152).
+    /// </summary>
+    private static bool OverGarage(BimDocument document, Floor floor)
+    {
+        if (document.FindLevel(floor.LevelId) is not { } level) return false;
+        var below = document.Levels.Where(each => each.Elevation < level.Elevation - 1).OrderByDescending(each => each.Elevation).FirstOrDefault();
+        if (below is null) return false;
+        var under = document.All<Room>().Where(room => room.LevelId == below.Id && floor.Contains(room.Location)).ToList();
+        return under.Count > 0 && under.All(room => Doors.Garage(document, room));
     }
 
     /// <summary>How many lines of party walls part the building: walls typed Party Wall on one line, or side by side as a double wall, one line.</summary>
@@ -91,7 +111,8 @@ public static class UnitSeparation
         int Work()
         {
             var groups = new List<List<Wall>>();
-            foreach (var wall in document.Walls.Where(wall => document.GetWallType(wall) is { Separating: true }))
+            // A separating wall with a garage on either side parts a garage from the house, not two dwellings (round 152).
+            foreach (var wall in document.Walls.Where(wall => document.GetWallType(wall) is { Separating: true } && !BesideGarage(document, wall)))
             {
                 var joined = groups.Where(group => group.Any(other => OnLine(wall, other) || Beside(document, wall, other))).ToList();
                 var into = new List<Wall> { wall };
@@ -114,7 +135,10 @@ public static class UnitSeparation
     public static bool Separates(BimDocument document, Wall wall)
     {
         if (!Applies(document) || document.GetWallType(wall) is not { } type || document.IsCurtainWall(wall)) return false;
-        if (type.Separating) return true;
+
+        // A separating wall's type parts dwelling units in a building of them - not a single-family house's wall to its garage, the 1-hour
+        // wall a builder takes for it (round 152).
+        if (type.Separating) return !BesideGarage(document, wall) && Kind(document) != UnitKind.None;
         if (type.Function == WallFunction.Exterior) return false;
         var (one, other) = WallRules.RoomsBeside(document, wall);
         return one is not null && other is not null && Dwellings.Of(one).Length > 0 && Dwellings.Of(other).Length > 0 && !Dwellings.Same(one, other);
@@ -124,7 +148,7 @@ public static class UnitSeparation
     public static bool Separates(BimDocument document, Floor floor)
     {
         if (!Applies(document) || floor.Boundary.Count < 3) return false;
-        if (document.FindType<SlabType>(floor.TypeId) is { Separating: true }) return true;
+        if (document.FindType<SlabType>(floor.TypeId) is { Separating: true }) return !OverGarage(document, floor) && Kind(document) != UnitKind.None;
         if (document.FindLevel(floor.LevelId) is not { } level) return false;
         var below = document.Levels.Where(each => each.Elevation < level.Elevation - 1).OrderByDescending(each => each.Elevation).FirstOrDefault();
         if (below is null) return false;

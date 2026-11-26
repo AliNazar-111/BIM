@@ -271,6 +271,7 @@ internal sealed class MaterialsWindow : System.Windows.Window
             SurfacePattern.Shingles => ("Width", "Exposure", "Gap"),
             SurfacePattern.HalfTimbered => ("Panel width", "Storey height", "Timber width"),
             SurfacePattern.BarrelTiles => ("Pan and cover", "Gauge up the slope", "Joint"),
+            SurfacePattern.Thatch => ("Stem width", "Course up the slope", "-"),
             SurfacePattern.Tiles or SurfacePattern.Paving => ("Unit length", "Unit width", "Joint"),
             SurfacePattern.Slate or SurfacePattern.PlainTiles or SurfacePattern.InterlockingTiles => ("Width", "Gauge up the slope", "Gap"),
             SurfacePattern.StandingSeam => ("Seams at", "-", "Seam width"),

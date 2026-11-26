@@ -33,7 +33,7 @@ public static class AlarmSiting
         // A home's rooms only: a building other than a dwelling has a fire detection and alarm system to BS 5839-1 (Architecture.Alarms, round 118).
         var rooms = document.All<Room>().Select(room => (Room: room, Boundary: room.GetBoundary(document))).Where(entry => entry.Boundary.IsEnclosed && Domestic.Rules(document, entry.Room)).ToList();
         bool Has(Room room, IReadOnlyList<Component> alarms) => alarms.Any(alarm => RoomsOf.Holds(document, room, rooms.First(entry => entry.Room == room).Boundary.Polygon, alarm));
-        bool Circulating(Room room) => Circulation.Any(room.Name.ToLowerInvariant().Contains);
+        bool Circulating(Room room) => Circulation.Any(room.Name.ToLowerInvariant().Contains) && !Ventilation.WetByName(room.Name);
         bool Bedroom(Room room, IReadOnlyList<Geometry.Point2D> outline) => room.Name.Contains("bed", StringComparison.OrdinalIgnoreCase) || Bedrooms.Of(document, room, outline) is not null;
 
         foreach (var storey in rooms.GroupBy(entry => entry.Room.LevelId))

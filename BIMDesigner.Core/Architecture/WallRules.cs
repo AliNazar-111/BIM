@@ -117,6 +117,35 @@ public static class WallRules
                 yield return Problem($"a pane over 9 sq ft comes down below 18 in{Units.MetricAside("457")}, not safety glass.", "IRC R308.4.3 makes such a pane a hazardous location: safety glazing.");
         }
 
+        // Its clear glass marked so that it is seen, in a building other than a dwelling, storey by storey - each cell's glass over the floor of
+        // the storey it is on; and its glass doors, by their own type (Approved Document K K5.2, 7.4, round 155).
+        if (!us && Manifestation.Applies(document) && RoomsBeside(document, wall) is var (one, other) && !Domestic.Rules(document, one, other))
+        {
+            var bottom = wall.GetBaseElevation(document);
+            var floors = document.Levels.Select(level => level.Elevation).Where(elevation => elevation > bottom + 1).OrderBy(elevation => elevation).ToList();
+            double FloorUnder(double height) => floors.Where(elevation => elevation <= height + 1).DefaultIfEmpty(bottom).Max();
+            if (!type.Manifestation)
+            {
+                var clear = layout.Cells.Where(cell => cell.Kind == CurtainPanelKind.Glazed && cell.Glass is not (CurtainGlass.Frosted or CurtainGlass.Spandrel))
+                    .Select(cell => (Floor: FloorUnder(bottom + cell.ClearBottom), Cell: cell))
+                    .GroupBy(entry => entry.Floor);
+                foreach (var storey in clear)
+                    if (Manifestation.Unmarked(storey.Select(entry => (entry.Cell.ClearTo - entry.Cell.ClearFrom, bottom + entry.Cell.ClearBottom - storey.Key, bottom + entry.Cell.ClearTop - storey.Key))) is { } pane)
+                    {
+                        yield return Problem(Manifestation.Said(pane), Manifestation.Rule);
+                        break;
+                    }
+            }
+
+            foreach (var cell in layout.Cells.Where(cell => cell.Kind == CurtainPanelKind.Door))
+                if (cell.OpeningTypeId is { } doorTypeId && document.FindType<DoorType>(doorTypeId) is { } doorType && Manifestation.DoorWants(doorType) && !doorType.Manifestation
+                    && Manifestation.Unmarked(new[] { (cell.ClearTo - cell.ClearFrom, bottom + cell.ClearBottom - FloorUnder(bottom + cell.ClearBottom), bottom + cell.ClearTop - FloorUnder(bottom + cell.ClearBottom)) }) is { } door)
+                {
+                    yield return Problem($"its door, {doorType.Name}: {Manifestation.Said(door)}", Manifestation.DoorRule);
+                    break;
+                }
+        }
+
         // Its mullions and transoms: how far the wind bends them, and the glass on a transom - and how they are fixed and spliced.
         foreach (var (said, rule) in MullionRules.Problems(document, wall, us).Concat(MullionFixings.Problems(document, wall)))
             yield return Problem(said, rule);
@@ -283,6 +312,34 @@ public static class WallRules
 
         var underside = roofs.Max(roof => roof.UndersideAt(document, middle));
         return underside - top > 50 ? underside - top : null;
+    }
+
+    /// <summary>
+    /// How far an inside wall stands up through the roof over it at its highest, mm - drawn its storey's height under a slope that comes down
+    /// lower, its top not attached to the roof: a partition in a room in the roof, a chalet's or a loft conversion's (round 149). Null where it
+    /// stays under the roof, where its top is attached or it stands on a roof, and for a party or compartment wall, which may rise through as
+    /// a parapet.
+    /// </summary>
+    public static double? ThroughRoof(BimDocument document, Wall wall)
+    {
+        if (wall.TopAttachedTo is not null || wall.BaseAttachedTo is not null || document.IsCurtainWall(wall)) return null;
+        if (document.GetWallType(wall) is not { Function: WallFunction.Interior, Separating: false }) return null;
+        var roofs = document.All<Roof>().Where(roof => !roof.IsExtrusion && roof.Boundary.Count >= 3 && roof.Dormer is null).ToList();
+        if (roofs.Count == 0) return null;
+
+        var (bottom, top) = (wall.GetBaseElevation(document), wall.GetTopElevation(document));
+        var line = wall.IsCurved ? wall.LocationCurve.Points() : new[] { wall.Start, wall.End };
+        var most = 0.0;
+        for (var i = 0; i + 1 < line.Count; i++)
+        for (var step = 0; step <= 20; step++)
+        {
+            var at = line[i] + (line[i + 1] - line[i]) * (step / 20.0);
+            foreach (var roof in roofs.Where(roof => roof.Contains(at)))
+                if (roof.TopAt(document, at) is var over && over > bottom + 1)
+                    most = Math.Max(most, top - over);
+        }
+
+        return most > 50 ? most : null;
     }
 
     /// <summary>What a wall comes to as its rules see it - its U-value outside, what it falls short of.</summary>

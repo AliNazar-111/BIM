@@ -301,13 +301,16 @@ public static class Lighting
         var name = room.Name.ToLowerInvariant();
         if (name.Contains("garage")) return LitRoom.Garage;
         if (name.Contains("stair")) return LitRoom.Stairs;
-        if (new[] { "hall", "landing", "corridor", "lobby", "foyer", "entry", "porch" }.Any(name.Contains)) return LitRoom.Hall;
+
+        // A kitchen, utility room or bathroom by its fittings or its name before a hall by its name: a "Hall Bath" is a bathroom (round 153).
         switch (Ventilation.UseOf(document, room, outline))
         {
             case RoomUse.Kitchen: return LitRoom.Kitchen;
             case RoomUse.Utility: return LitRoom.Utility;
             case RoomUse.Bathroom or RoomUse.Wc: return LitRoom.Bathroom;
         }
+
+        if (new[] { "hall", "landing", "corridor", "lobby", "foyer", "entry", "porch" }.Any(name.Contains)) return LitRoom.Hall;
 
         if (name.Contains("laundry")) return LitRoom.Utility;
         if (name.Contains("dining")) return LitRoom.Dining;

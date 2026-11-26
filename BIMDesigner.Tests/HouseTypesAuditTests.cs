@@ -53,7 +53,7 @@ public class HouseTypesAuditTests
         // Each eave over a wall drawn but not set bearing: bears on nothing, and that wall is the one to set.
         var said = Problems(document, roof);
         Assert.Equal(2, said.Count);
-        Assert.All(said, each => Assert.EndsWith("bears on nothing in the analytical model: no bearing wall runs under it. The wall under its eave, Exterior - Brick on Block 330mm, is Non-bearing: set its Structural Usage to Bearing to carry it.", each));
+        Assert.All(said, each => Assert.EndsWith("bears on nothing in the analytical model: no bearing wall or beam runs under it. The wall under its eave, Exterior - Brick on Block 330mm, is Non-bearing: set its Structural Usage to Bearing to carry it.", each));
 
         // Set so, they carry it.
         foreach (var wall in document.Walls) wall.StructuralUsage = StructuralUsage.Bearing;

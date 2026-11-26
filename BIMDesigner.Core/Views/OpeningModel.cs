@@ -34,13 +34,16 @@ internal static class OpeningModel
     private static readonly ColourRgb Glass = new(0x8C, 0xC4, 0xE0);
     private static readonly ColourRgb Metal = new(0x3A, 0x3D, 0x42);
 
+    /// <summary>The colour glass is marked with: a frosted white, as etched or applied film reads (Approved Document K 7.4, round 155).</summary>
+    public static readonly ColourRgb ManifestationColour = new(0xE6, 0xEA, 0xED);
+
     public static void Add(
         Wall wall, WallType wallType, Opening opening, OpeningType type,
-        double from, double to, double sill, double head, List<Mesh3D> meshes)
+        double from, double to, double sill, double head, List<Mesh3D> meshes, double? floor = null)
     {
         if (head - sill <= 1 || to - from <= 1) return;
 
-        var builder = new Builder(wall, wallType, opening, type, from, to, sill, head);
+        var builder = new Builder(wall, wallType, opening, type, from, to, sill, head) { Floor = floor };
 
         switch (type)
         {
@@ -68,7 +71,7 @@ internal static class OpeningModel
         Wall wall, WallType body, DoorType type, Guid panelId, Guid levelId,
         double from, double to, double sill, double head, List<Mesh3D> meshes,
         bool flipHand = false, bool flipFacing = false, CurtainGlass glazing = CurtainGlass.Clear,
-        bool isOpen = false)
+        bool isOpen = false, double? floor = null)
     {
         if (head - sill <= 1 || to - from <= 1) return;
 
@@ -80,7 +83,7 @@ internal static class OpeningModel
             FlipHand = flipHand, FlipFacing = flipFacing, IsOpen = isOpen
         };
 
-        var builder = new Builder(wall, body, panel, type, from, to, sill, head, wall.Id, glazing) { Trimmed = false };
+        var builder = new Builder(wall, body, panel, type, from, to, sill, head, wall.Id, glazing) { Trimmed = false, Floor = floor };
         builder.Door(type);
 
         meshes.AddRange(builder.Meshes);
@@ -131,6 +134,24 @@ internal static class OpeningModel
         private readonly Mesh3D _metal;
         private readonly Mesh3D _hinges;
         private readonly Mesh3D _shutters;
+        private readonly Mesh3D _marks;
+
+        /// <summary>The floor the opening stands on, project elevation: where its glass's manifestation goes from; none, none drawn.</summary>
+        public double? Floor { get; init; }
+
+        /// <summary>
+        /// Its glass marked where its type says so: a band 50 high in each of Approved Document K's two zones, 850 to 1000 and 1400 to 1600
+        /// over the floor, across each pane that runs through it (7.4, Diagram 7.2, round 155).
+        /// </summary>
+        private void Marks(double z0, double z1, Action<double, double> strip)
+        {
+            if (Floor is not { } floor || !_type.Manifestation) return;
+            foreach (var centre in new[] { 925.0, 1500.0 })
+            {
+                var (b0, b1) = (floor + centre - 25, floor + centre + 25);
+                if (z0 <= b0 && z1 >= b1) strip(b0, b1);
+            }
+        }
 
         public Builder(
             Wall wall, WallType wallType, Opening opening, OpeningType type,
@@ -170,6 +191,7 @@ internal static class OpeningModel
             _hinges = new Mesh3D(opening.Id, opening.LevelId, MeshKind.DoorLeaf, Metal, "Hinges") { OwnerId = owner };
             _shutters = new Mesh3D(opening.Id, opening.LevelId, MeshKind.DoorLeaf,
                 ShutterColourOf(type is WindowType shuttered ? shuttered.ShutterFinish : string.Empty), "Shutters") { OwnerId = owner };
+            _marks = new Mesh3D(opening.Id, opening.LevelId, MeshKind.DoorLeaf, ManifestationColour, "Manifestation") { OwnerId = owner, Opacity = 0.85 };
         }
 
         public double Width { get; }
@@ -206,7 +228,7 @@ internal static class OpeningModel
         /// </summary>
         private double SwingSide(bool hingeAtStart) => Facing * (hingeAtStart ? 1 : -1);
 
-        public IEnumerable<Mesh3D> Meshes => new[] { _frame, _leaf, _glass, _metal, _hinges, _shutters }.Where(m => !m.IsEmpty);
+        public IEnumerable<Mesh3D> Meshes => new[] { _frame, _leaf, _glass, _metal, _hinges, _shutters, _marks }.Where(m => !m.IsEmpty);
 
         // ---- doors -------------------------------------------------------------------
 
@@ -533,8 +555,11 @@ internal static class OpeningModel
             }
         }
 
-        private void GlassIn(LeafFrame f, double s0, double s1, double z0, double z1) =>
+        private void GlassIn(LeafFrame f, double s0, double s1, double z0, double z1)
+        {
             Block(_glass, f, s0, s1, -PaneThickness / 2, PaneThickness / 2, z0, z1);
+            Marks(z0, z1, (b0, b1) => Block(_marks, f, s0, s1, -PaneThickness / 2 - 2, PaneThickness / 2 + 2, b0, b1));
+        }
 
         /// <summary>Bars dividing a pane into rows and columns of smaller ones.</summary>
         private void GlazingBars(LeafFrame f, double s0, double s1, double z0, double z1, int rows, int columns)
@@ -1189,6 +1214,7 @@ internal static class OpeningModel
         {
             var t = PaneThickness / 2;
             OnSash(_glass, p, s0, s1, -t, t, z0, z1);
+            Marks(z0, z1, (b0, b1) => OnSash(_marks, p, s0, s1, -t - 2, t + 2, b0, b1));
         }
 
         /// <summary>
@@ -1247,6 +1273,7 @@ internal static class OpeningModel
         {
             var t = PaneThickness / 2;
             Box(_glass, u0, u1, across - t, across + t, z0, z1);
+            Marks(z0, z1, (b0, b1) => Box(_marks, u0, u1, across - t - 2, across + t + 2, b0, b1));
         }
 
         // ---- building blocks -----------------------------------------------------------

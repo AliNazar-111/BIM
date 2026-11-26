@@ -275,6 +275,11 @@ public static class Doors
                     ? "IRC R308.4.1 makes all glass in a door a hazardous location: tempered or laminated safety glazing."
                     : "Approved Document K (5.1, Diagram 5.1) makes glass in a door below 1500 a critical location: safety glass to BS EN 12600, class 3 at least.");
 
+        // A glass door in a slim frame marked so that it is seen, in a building other than a dwelling (Approved Document K K5.2, 7.4, round 155).
+        if (!standard.IsUs() && Manifestation.DoorWants(type) && !type.Manifestation && !Domestic.Rules(document, door)
+            && Manifestation.Unmarked(new[] { (type.Width - 2 * Frame, 100.0, type.Height - Frame) }) is { } glass)
+            Add(Manifestation.Said(glass), Manifestation.DoorRule);
+
         // A conversion's outside door: retained, replaced over 3.3; new, 1.4 (Approved Document L 11.7, round 145).
         if (!standard.IsUs() && external && Conversion.Applies(document))
         {

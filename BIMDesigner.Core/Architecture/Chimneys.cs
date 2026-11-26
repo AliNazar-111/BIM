@@ -149,6 +149,17 @@ public static partial class Chimneys
     /// <summary>Approved Document J: above the highest contact, above a ridge it is near, and the reach of the roof that counts, mm.</summary>
     public const double AboveContact = 1000, AboveRidge = 600, NearRidge = 600, RoofReach = 2300;
 
+    /// <summary>
+    /// Approved Document J's Diagram 18, through a roof easily ignited - thatch or shingles (2.12): 1800 above the weather surface, and within
+    /// 2300 of the ridge 600 above the ridge as well, mm (round 151).
+    /// </summary>
+    public const double AboveThatch = 1800, ThatchRidgeReach = 2300;
+
+    /// <summary>Whether a roof's covering is easily ignited, as Approved Document J 2.12 has a roof covered in thatch or shingles: its outer layer's material so named.</summary>
+    public static bool EasilyIgnited(BimDocument document, Roof roof) =>
+        document.FindType<SlabType>(roof.TypeId)?.Structure.Layers.FirstOrDefault() is { } outer && document.FindMaterial(outer.MaterialId) is { } material
+        && (material.Name.Contains("thatch", StringComparison.OrdinalIgnoreCase) || material.Name.Contains("shingle", StringComparison.OrdinalIgnoreCase));
+
     /// <summary>How far a balanced gas flue's terminal stands above the roof, mm: Approved Document J's 300 (the table to Diagram 34, row I).</summary>
     public const double BalancedFlueAbove = 300;
 
@@ -332,6 +343,16 @@ public static partial class Chimneys
                 if (Off(wall.Start + wall.Direction * window.DistanceAlongWall) > RoofReach) continue;
                 var head = wall.GetBaseElevation(document) + window.SillHeight + window.HeightOf(document.FindType<WindowType>(window.TypeId));
                 if (head > foot) top = Math.Max(top, head + AboveContact);
+            }
+
+            // Diagram 18 (2.12): through a roof covered in thatch or shingles, easily ignited - 1800 above the weather surface where it comes
+            // through, the ridge's height no stand-in for it; within 2300 of the ridge, 600 above the ridge as well (round 151).
+            foreach (var roof in roofs.Where(roof => EasilyIgnited(document, roof)))
+            {
+                top = Math.Max(top, contact + AboveThatch);
+                foreach (var (from, to) in roof.Surface(document).BreakLines.Where(line => IsRidge(document, roof, line)))
+                    if (outline.Min(corner => Line2D.DistanceFromSegment(corner, from, to)) <= ThatchRidgeReach || Polygon2D.Contains(outline, from.MidpointTo(to)))
+                        top = Math.Max(top, Math.Max(roof.TopAt(document, from), roof.TopAt(document, to)) + AboveRidge);
             }
         }
 

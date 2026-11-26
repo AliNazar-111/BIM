@@ -1622,11 +1622,24 @@ public static class Stairs
     /// building other than a dwelling, not in a room named into one, is that building's general access stair. The US keeps what is set.
     /// </summary>
     public static StairUse UseOf(BimDocument document, Stair stair) =>
-        stair.Use == StairUse.Private && !Domestic.Rules(document, RoomsOf.Containing(document, stair.LevelId, stair.Start)) ? StairUse.GeneralAccess : stair.Use;
+        stair.Use == StairUse.Private && !PrivateAt(document, RoomsOf.Containing(document, stair.LevelId, stair.Start)) ? StairUse.GeneralAccess : stair.Use;
 
-    /// <summary>The use a stair drawn at a place is given: private in a home's building or a room named into a dwelling, else general access.</summary>
+    /// <summary>
+    /// The use a stair drawn at a place is given: private in a home's building or a room named into a dwelling - but not in a block of flats'
+    /// common parts - else general access.
+    /// </summary>
     public static StairUse UseFor(BimDocument document, Guid levelId, Point2D at) =>
-        Domestic.Rules(document, RoomsOf.Containing(document, levelId, at)) ? StairUse.Private : StairUse.GeneralAccess;
+        PrivateAt(document, RoomsOf.Containing(document, levelId, at)) ? StairUse.Private : StairUse.GeneralAccess;
+
+    /// <summary>
+    /// Whether a stair standing in a room is a private stair: in a home's building or a room named into a dwelling, and not in the common parts
+    /// of a block - a room named into no dwelling where two or more are named. Approved Document K has a private stair as one intended for
+    /// only one dwelling (Appendix A), a block's common stair a general access stair (round 150). The IBC's apartments are judged their own way.
+    /// </summary>
+    private static bool PrivateAt(BimDocument document, Room? room) =>
+        Domestic.Rules(document, room)
+        && !(room is not null && Dwellings.Of(room).Length == 0 && !document.ProjectInformation.ClearanceStandard.IsUs()
+             && document.All<Room>().Select(Dwellings.Of).Where(name => name.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).Skip(1).Any());
 
     /// <summary>How far above or below its level a floor, deck or terrace may be and still be the one a stair stands on or comes up to there, mm.</summary>
     public const double FloorReach = 600;
@@ -2564,8 +2577,10 @@ public static class Stairs
         var below = DoorSwings(document, layout.Bottom, reach);
         var first = steps[0];
         var clear = Stairs.UseOf(document, stair) == StairUse.Private ? 400 : Math.Max(1200, layout.Width);
-        var foot = new[] { first.RiserFrom, first.RiserTo, first.RiserTo - first.Up * clear, first.RiserFrom - first.Up * clear };
-        if (!standard.IsUs() && below.Any(swing => Overlap(swing, foot)))
+        // Clipped at the walls round it: a door beyond a wall at its foot - into a WC behind the stair - does not swing across it (round 150).
+        var foot = OnTheStairsSide(document, stair.LevelId, new[] { first.RiserFrom, first.RiserTo, first.RiserTo - first.Up * clear, first.RiserFrom - first.Up * clear },
+            first.RiserFrom.MidpointTo(first.RiserTo) - first.Up * 10);
+        if (!standard.IsUs() && below.Any(swing => foot.Any(piece => Overlap(swing, piece))))
             yield return Stairs.UseOf(document, stair) == StairUse.Private
                 ? "A door swings within 400 of its bottom step: Approved Document K asks for 400 clear across the stair."
                 : $"A door swings across the landing at its foot: Approved Document K asks for landings clear of doors on {UseName(Stairs.UseOf(document, stair))}.";
@@ -2582,8 +2597,9 @@ public static class Stairs
         foreach (var (from, to) in layout.Arrivals)
         {
             var away = Away(layout, (from, to));
-            var landing = new[] { from, to, to + away * layout.Width, from + away * layout.Width };
-            if (above.Any(swing => Overlap(swing, landing)))
+            var landing = OnTheStairsSide(document, stair.TopLevelId ?? stair.LevelId, new[] { from, to, to + away * layout.Width, from + away * layout.Width },
+                from.MidpointTo(to) + away * 10);
+            if (above.Any(swing => landing.Any(piece => Overlap(swing, piece))))
             {
                 yield return "A door swings over the landing at its head: Approved Document K asks for its landings to be clear of doors.";
                 yield break;
@@ -2595,6 +2611,25 @@ public static class Stairs
     /// The ground swinging doors sweep as they open at a floor: those whose sill is within reach
     /// of its height, whatever level their wall stands on - each leaf a quarter circle round its hinge.
     /// </summary>
+    /// <summary>
+    /// The part of a zone at a stair's foot or head on the stair's side of the walls on its storey: the zone less the walls standing in it, the
+    /// piece that holds a point by the stair - not the room beyond a wall the zone reaches into.
+    /// </summary>
+    private static IReadOnlyList<IReadOnlyList<Point2D>> OnTheStairsSide(BimDocument document, Guid levelId, IReadOnlyList<Point2D> zone, Point2D near)
+    {
+        IReadOnlyList<IReadOnlyList<Point2D>> pieces = new[] { zone };
+        foreach (var wall in document.Walls.Where(wall => wall.LevelId == levelId && !wall.IsCurved && document.GetWallType(wall) is { } type && type.Structure.TotalWidth > 0))
+        {
+            var type = document.GetWallType(wall)!;
+            var band = CurtainGeometry.Band(wall, type, 0, wall.Length, type.Structure.TotalWidth / 2, -type.Structure.TotalWidth / 2);
+            if (!pieces.Any(piece => PolygonBoolean.Combine(piece, band, BooleanOperation.Intersection).Sum(region => region.Area) > 1)) continue;
+            pieces = pieces.SelectMany(piece => PolygonBoolean.Combine(piece, band, BooleanOperation.Difference).Select(region => (IReadOnlyList<Point2D>)region.Outer)).ToList();
+        }
+
+        var kept = pieces.Where(piece => Polygon2D.Contains(piece, near)).ToList();
+        return kept.Count > 0 ? kept : pieces;
+    }
+
     public static IReadOnlyList<IReadOnlyList<Point2D>> DoorSwings(BimDocument document, double floor, double reach = FloorReach)
     {
         var swings = new List<IReadOnlyList<Point2D>>();

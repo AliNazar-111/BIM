@@ -148,7 +148,7 @@ public static partial class Security
         if (approached.Count > 0) return approached.Contains(door);
         bool Named(Door each) => document.FindType<DoorType>(each.TypeId)?.Name is { } name && (name.Contains("front", StringComparison.OrdinalIgnoreCase) || name.Contains("entrance", StringComparison.OrdinalIgnoreCase));
         if (outside.Any(Named)) return Named(door);
-        return new[] { "hall", "entrance", "porch" }.Any(word => inside.Name.Contains(word, StringComparison.OrdinalIgnoreCase));
+        return new[] { "hall", "entrance", "porch" }.Any(word => inside.Name.Contains(word, StringComparison.OrdinalIgnoreCase)) && !Mep.Ventilation.WetByName(inside.Name);
     }
 
     /// <summary>Whether a window stands beside a door, in its wall or one in line with it, within 1 m of its frame - its glass showing callers.</summary>

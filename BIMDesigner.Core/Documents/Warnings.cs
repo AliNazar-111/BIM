@@ -87,6 +87,13 @@ public static class Warnings
     {
         foreach (var warning in Duplicates(document)) yield return warning;
         foreach (var warning in OverlappingWalls(document)) yield return warning;
+
+        // An inside wall drawn its storey's height up through a sloping roof (round 149).
+        foreach (var wall in document.Walls)
+            if (WallRules.ThroughRoof(document, wall) is { } through)
+                yield return new Warning(WarningKind.Model, "Walls through roofs",
+                    $"{NameOf(document, wall)} on {LevelName(document, wall)} stands {Units.FormatLength(through)} up through the roof over it: attach its top to the roof (Attach Top), or lower it.",
+                    new Element[] { wall });
         foreach (var warning in RoomProblems(document)) yield return warning;
         foreach (var warning in AreaProblems(document)) yield return warning;
 

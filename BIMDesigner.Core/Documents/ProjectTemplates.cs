@@ -114,7 +114,8 @@ public static class ProjectTemplates
         "Roof - Asphalt Shingles on Plywood, 2x8 Rafters", "Roof - Asphalt Shingles on FRT Plywood, 2x8 Rafters",
         "Wood Frame 2x6 - Board and Batten", "Wood Frame 2x6 - Cedar Shingles", "Wood Frame 2x6 - Stucco",
         "Double Hung - 36 x 60 in, Louvred Shutters", "Stair - Wood, 7 3/4 in Rise, 10 in Tread", "Casement - 30 x 48 in, Egress",
-        "Stair - Concrete Pan, 7 in Rise, 11 in Tread", "Demising Wall - Staggered Studs, 5/8 in Type X Each Side, 1 hr, STC 51"
+        "Stair - Concrete Pan, 7 in Rise, 11 in Tread", "Demising Wall - Staggered Studs, 5/8 in Type X Each Side, 1 hr, STC 51",
+        "Base Cabinet - 24 in", "Base Cabinet - 36 in", "Sink Base - 36 in", "Roof - Standing Seam Steel on Plywood, 2x8 Rafters"
     };
 
     private static readonly HashSet<string> EnglishTypes = new(StringComparer.Ordinal)

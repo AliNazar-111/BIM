@@ -719,6 +719,7 @@ public static partial class ProjectFile
                 AutomaticallyEmbed = curtain.AutomaticallyEmbed,
                 HeatTransferCoefficient = curtain.HeatTransferCoefficient,
                 SafetyGlazing = curtain.SafetyGlazing,
+                Manifestation = curtain.Manifestation ? true : null,
                 InteriorVertical = curtain.InteriorVertical,
                 BorderVerticalStart = curtain.BorderVerticalStart,
                 BorderVerticalEnd = curtain.BorderVerticalEnd,
@@ -1637,6 +1638,7 @@ public static partial class ProjectFile
         dto.AcousticRating = type.AcousticRating;
         dto.HeatTransferCoefficient = type.HeatTransferCoefficient;
         dto.SafetyGlazing = type.SafetyGlazing;
+        dto.Manifestation = type.Manifestation ? true : null;
         dto.Security = type.Security.Length == 0 ? null : type.Security;
     }
 
@@ -2345,6 +2347,7 @@ public static partial class ProjectFile
                 AutomaticallyEmbed = dtoCurtain.AutomaticallyEmbed,
                 HeatTransferCoefficient = dtoCurtain.HeatTransferCoefficient is >= 0 and < 20 ? dtoCurtain.HeatTransferCoefficient.Value : 1.4,
                 SafetyGlazing = dtoCurtain.SafetyGlazing ?? true,
+                Manifestation = dtoCurtain.Manifestation ?? false,
                 InteriorVertical = dtoCurtain.InteriorVertical,
                 BorderVerticalStart = dtoCurtain.BorderVerticalStart,
                 BorderVerticalEnd = dtoCurtain.BorderVerticalEnd,
@@ -4077,6 +4080,7 @@ public static partial class ProjectFile
         type.AcousticRating = dto.AcousticRating;
         type.HeatTransferCoefficient = dto.HeatTransferCoefficient;
         type.SafetyGlazing = dto.SafetyGlazing ?? false;
+        type.Manifestation = dto.Manifestation ?? false;
         type.Security = dto.Security ?? string.Empty;
     }
 
