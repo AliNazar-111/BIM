@@ -71,6 +71,16 @@ public static class EvCharging
             if (dwellings == 0) yield break;
             var needed = Math.Min(total, dwellings);
             var fromOpen = Math.Min(needed, open.Count);
+            // Dwellings formed by a material change of use: S2 and regulation 44E - a charge point for each, no cable routes (round 145).
+            if (Conversion.Applies(document))
+            {
+                var chargedAll = bays.Count(bay => charged.Contains(bay.Piece));
+                if (chargedAll < needed)
+                    yield return new MepProblem(First(bays, piece => !charged.Contains(piece)),
+                        $"{chargedAll} of the {total} associated parking spaces {(chargedAll == 1 ? "has" : "have")} a charge point - Approved Document S (S2, regulation 44E) asks one for each dwelling formed by a material change of use, {needed}, where the car park or its electrics are worked on and the incoming supply takes them");
+                yield break;
+            }
+
             if (chargedOpen < fromOpen)
                 yield return new MepProblem(First(open, piece => !charged.Contains(piece)),
                     $"{chargedOpen} of the {open.Count} associated parking spaces outside a covered car park {(chargedOpen == 1 ? "has" : "have")} a charge point - Approved Document S (S1(2), 1.1, 1.4) asks {fromOpen}: as many as there are dwellings, {dwellings}, or as there are spaces where there are fewer, outside a covered car park first");

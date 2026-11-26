@@ -352,6 +352,20 @@ public sealed class StairType : ElementType
         {
             Support = StairSupport.Cantilevered, OpenRisers = true, RiserBars = true, TreadThickness = 80, Balustrade = StairBalustrade.Glass,
             TypeMark = "ST7", Cost = 7500m
+        },
+
+        // A US house's (round 143): risers 7 3/4 in at most and treads 10 in (IRC R311.7.5.1, R311.7.5.2), a 1 in nosing (R311.7.5.3), its
+        // handrail 34 in up (R311.7.8.1), balusters no 4 in sphere passes (R312.1.3).
+        new StairType("Stair - Wood, 7 3/4 in Rise, 10 in Tread")
+        {
+            MaxRiser = 196, Going = 254, Nosing = 25, HandrailHeight = 864, BalusterSpacing = 100, TypeMark = "ST8", Cost = 1900m
+        },
+
+        // A US apartment building's common stair (round 144): concrete-filled pan, risers 7 in at most and treads 11 in (IBC 1011.5.2).
+        new StairType("Stair - Concrete Pan, 7 in Rise, 11 in Tread")
+        {
+            Construction = StairConstruction.Concrete, MaxRiser = 178, Going = 279, Nosing = 25, HandrailHeight = 864, BalusterSpacing = 100,
+            Colour = new ColourRgb(0xB5, 0xB3, 0xAE), TypeMark = "ST9", Cost = 4800m
         }
     };
 }
@@ -1713,8 +1727,9 @@ public static class Stairs
     public static (double By, Vector2D Back)? Overrun(BimDocument document, Stair stair, StairLayout layout, Guid? topLevelId)
     {
         if (topLevelId is not { } topLevel || layout.Arrivals.Count == 0 || SteppedOff(layout) is not { } off || StoodOnAt(document, topLevel, off) is not { } arrived) return null;
+        // Its foot within the floor's outline - under it, or in the stairwell drawn as a hole in it - it comes up through the floor, as a stair inside does.
         var first = layout.Steps.OrderBy(step => step.Number).FirstOrDefault();
-        if (first is null || first.Outline.Any(point => arrived.Slab.Contains(point))) return null;
+        if (first is null || first.Outline.Any(point => Polygon2D.Contains(arrived.Slab.Boundary, point))) return null;
         if (Openings(document, stair, arrived.Slab, layout).Count == 0) return null;
 
         // From where it is stepped off - a spiral's landing's outside edge - back the way it came up.
@@ -2095,6 +2110,28 @@ public static class Stairs
     /// Whether a stair comes up to an outside door, and every outside door of the building is
     /// reached by a stair outside - none by a level way or a ramp.
     /// </summary>
+    /// <summary>Whether a stair is a visitable dwelling's stepped approach (M4(1) 1.8): steps outside a house checked to M4(1), the only way up to its doors.</summary>
+    private static bool SteppedApproach(BimDocument document, Stair stair, StairLayout layout, ClearanceStandard standard) =>
+        standard == ClearanceStandard.ApprovedDocumentM1 && stair.Outside && Domestic.Rules(document) && StepsToEveryDoor(document, layout);
+
+    /// <summary>The most risers one after another with no landing between: a flight's, each riser up to a landing or the floor its last.</summary>
+    private static int RisersBetweenLandings(StairLayout layout)
+    {
+        if (layout.Steps.All(step => step.Kind != StairStepKind.Landing)) return layout.Risers;
+        var (most, run) = (0, 0);
+        foreach (var step in layout.Steps)
+        {
+            if (step.Kind == StairStepKind.Landing)
+            {
+                most = Math.Max(most, run + 1);
+                run = 0;
+            }
+            else run++;
+        }
+
+        return Math.Max(most, run + 1);
+    }
+
     private static bool StepsToEveryDoor(BimDocument document, StairLayout layout)
     {
         var outside = document.All<Door>()
@@ -2179,6 +2216,19 @@ public static class Stairs
             else if (type.HandrailExtension < Math.Max(305, layout.Going) - 0.5)
                 problems.Add($"Its handrails run on {Units.Bare(type.HandrailExtension)} past its ends: the ADA asks for {Units.Figure("305", "12 in")} past its top riser and a tread's depth, {Units.Bare(layout.Going)}, past its bottom one (505.10).");
         }
+        else if (standard.IsUs() && Apartments.Applies(document) && !Apartments.WithinUnit(document, stair))
+        {
+            // A common stair of an apartment building, IBC Group R-2 (round 144): risers 4 to 7 in and treads 11 in (1011.5.2), its width by the
+            // occupants it serves (1011.2), handrails on each side (1011.11), no winders but within a unit (1011.5.3).
+            if (rise > 178 + 0.5) problems.Add($"Each riser is {Units.Bare(rise)}: the IBC allows {Units.Figure("178", "7 in")} at most on a common stair (1011.5.2).");
+            if (rise < 102 - 0.5) problems.Add($"Each riser is {Units.Bare(rise)}: the IBC asks for {Units.Figure("102", "4 in")} at least (1011.5.2).");
+            foreach (var (going, where) in MeasuredGoings(layout, standard))
+                if (going < 279 - 0.5) problems.Add(where == "" ? $"Each tread is {Units.Bare(going)}: the IBC asks for {Units.Figure("279", "11 in")} at least on a common stair (1011.5.2)." : $"Its treads are {Units.Bare(going)} {where}: the IBC asks for {Units.Figure("279", "11 in")} at least (1011.5.2).");
+            var wide = Apartments.StairWidth(document, stair);
+            if (layout.Width < wide - 0.5) problems.Add($"It is {Units.Bare(layout.Width)} wide: the IBC asks for {(wide > Apartments.Narrow ? Units.Figure("1118", "44 in") : Units.Figure("914", "36 in"))} at least{(wide > Apartments.Narrow ? string.Empty : " serving fewer than 50")} (1011.2).");
+            if (stair.Railings is StairRailings.LeftSide or StairRailings.RightSide or StairRailings.None) problems.Add("The IBC asks for handrails on each side of a stair (1011.11).");
+            if (layout.WinderGoing is not null) problems.Add("Its winders: the IBC allows winders only within a dwelling unit (1011.5.3).");
+        }
         else if (standard.IsUs())
         {
             if (rise > 196 + 0.5) problems.Add($"Each riser is {Units.Bare(rise)}: the IRC allows {Units.Figure("196", "7¾ in")} at most.");
@@ -2247,6 +2297,12 @@ public static class Stairs
         {
             if (type.HandrailHeight < 864 - 0.5 || type.HandrailHeight > 965 + 0.5) problems.Add($"Its handrail is {Units.Bare(type.HandrailHeight)} high: the IRC asks for {Units.Figure("864 to 965", "34 to 38 in")}.");
         }
+        else if (SteppedApproach(document, stair, layout, standard))
+        {
+            // A visitable dwelling's stepped approach: Approved Document M's 850 to 1000 over the pitch line, which takes precedence over Part K's (0.14, 1.8f).
+            if (type.HandrailHeight < 850 - 0.5 || type.HandrailHeight > 1000 + 0.5)
+                problems.Add($"Its handrail is {type.HandrailHeight:0} high: Approved Document M asks for 850 to 1000 over a stepped approach (M4(1) 1.8f).");
+        }
         else if (type.HandrailHeight < 900 - 0.5 || type.HandrailHeight > 1000 + 0.5)
             problems.Add($"Its handrail is {type.HandrailHeight:0} high: Approved Document K asks for 900 to 1000.");
 
@@ -2281,6 +2337,22 @@ public static class Stairs
                   "or to another entrance (M4(2) 2.6, 2.7; M4(3) 3.7, 3.8) - a ramp beside it, or another door reached without steps."
                 : "Its steps are the only way up to the building's outside doors: Approved Document M Volume 2 (1.6, 1.8, 2.1) asks a level or ramped approach " +
                   "to the principal entrance, or an alternative accessible entrance (2.2) - a ramp beside it, or another door reached without steps.");
+
+        // A visitable dwelling's steps up to its doors: a stepped approach, which M4(1) allows where step-free access cannot be had (1.4, 1.8) -
+        // risers 75 to 150, all the same, goings 280; no flight rising more than 1800 between landings; 900 wide (round 148).
+        if (SteppedApproach(document, stair, layout, standard))
+        {
+            if (rise > 150 + 0.5 || rise < 75 - 0.5)
+                problems.Add($"Each riser is {rise:0}: Approved Document M asks a stepped approach for risers of 75 to 150 (M4(1) 1.8a).");
+            foreach (var (going, where) in MeasuredGoings(layout, standard))
+                if (going < 280 - 0.5)
+                    problems.Add(where == "" ? $"Each tread is {going:0}: Approved Document M asks a stepped approach for goings of 280 at least (M4(1) 1.8a)."
+                        : $"Its treads are {going:0} {where}: Approved Document M asks a stepped approach for goings of 280 at least (M4(1) 1.8a).");
+            if (layout.Width < 900 - 0.5)
+                problems.Add($"It is {layout.Width:0} wide: Approved Document M asks every flight of a stepped approach for 900 clear (M4(1) 1.8d).");
+            if (RisersBetweenLandings(layout) * rise > 1800 + 0.5)
+                problems.Add($"It rises {RisersBetweenLandings(layout) * rise:0} between landings: Approved Document M allows a flight of a stepped approach 1800 at most (M4(1) 1.8c) - a landing 900 long part way.");
+        }
 
         // A wall standing across its steps.
         foreach (var (wall, step) in StairModel.WallsThrough(document, layout))

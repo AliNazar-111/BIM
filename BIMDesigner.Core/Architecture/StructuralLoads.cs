@@ -389,7 +389,7 @@ public sealed class StructuralLoading
                     {
                         var slab = panel.Element as Slab ?? _document.All<Floor>().FirstOrDefault(floor => panel.Element is RaftFoundation raft && floor.LevelId == raft.LevelId && Polygon2D.Contains(raft.Outline, floor.Centroid));
                         var (load, said) = slab is null ? (_us ? 40 * Loads.Psf : 1.5, _us ? "dwelling, 40 psf" : "home, A1") : FloorImposed(_document, slab);
-                        var (partition, dead, why) = slab is null ? (0.0, 0.0, string.Empty) : Partitions(slab);
+                        var (partition, dead, why) = slab is null ? (0.0, 0.0, string.Empty) : Partitions(slab, panel.Kind is AnalyticalPanelKind.GroundSlab or AnalyticalPanelKind.Raft);
                         Surface(_imposed, panel, load + partition, partition > 0 ? $"{said}, with {why}" : said);
                         Surface(_dead, panel, dead, why);
                         break;
@@ -408,7 +408,7 @@ public sealed class StructuralLoading
         /// England the allowance 6.3.1.2(8) adds to the imposed load for the heaviest, kN/m²; in the US
         /// in an office 15 psf live (4.3.2), in a home their weight spread over it, dead.
         /// </summary>
-        private (double Imposed, double Dead, string Said) Partitions(Slab slab)
+        private (double Imposed, double Dead, string Said) Partitions(Slab slab, bool onGround = false)
         {
             var walls = _document.Walls.Where(wall => wall.LevelId == slab.LevelId && wall.StructuralUsage == StructuralUsage.NonBearing && !_document.IsCurtainWall(wall)
                                                      && slab.Contains(wall.Start.MidpointTo(wall.End)) && _document.GetWallType(wall) is not null).ToList();
@@ -426,8 +426,16 @@ public sealed class StructuralLoading
             var heaviest = perMetre.Max(each => each.Load);
             if (heaviest > 3)
             {
-                _loading.Problems.Add(new AnalyticalProblem($"A partition of {heaviest:0.0} kN/m stands on it - heavier than the 3 kN/m BS EN 1991-1-1 6.3.1.2(8) spreads: it is to be taken where it stands (6.3.1.2(9)), as a bearing wall or a load of its own.",
-                    new Element[] { slab, perMetre.First(each => each.Load == heaviest).Wall }));
+                // A slab on the ground: the wall stands on the ground through it, not on a span.
+                if (!onGround)
+                {
+                    var wall = perMetre.First(each => each.Load == heaviest).Wall;
+                    var type = _document.GetWallType(wall)!;
+                    var outside = type.Function == WallFunction.Exterior ? " - an outside wall" : string.Empty;
+                    _loading.Problems.Add(new AnalyticalProblem($"A wall not set bearing, {type.Name}{outside}, of {heaviest:0.0} kN/m stands on it as a partition - heavier than the 3 kN/m BS EN 1991-1-1 6.3.1.2(8) spreads: it is to be taken where it stands (6.3.1.2(9)), as a bearing wall or a load of its own. If it carries what is over it, set its Structural Usage to Bearing.",
+                        new Element[] { slab, wall }));
+                }
+
                 return (1.2, 0, "partitions, 1.2 kN/m² for those up to 3 kN/m");
             }
 
@@ -484,17 +492,18 @@ public sealed class StructuralLoading
                 if (_document.All<RaftFoundation>().Any(raft => raft.LevelId == floor.LevelId && Polygon2D.Contains(raft.Outline, floor.Centroid))) continue;
                 var height = floor.GetTopElevation(_document);
                 var (imposed, said) = FloorImposed(_document, floor);
-                var (partition, partitionDead, why) = Partitions(floor);
-                var weight = Loads.Weight(_document, type.Structure) + partitionDead;
                 var spread = Spread(floor, height, out var carried);
                 JoistsLeftOut(floor, height);
                 if (spread.Count == 0)
                 {
-                    // On the ground, onto nothing: it is carried by the ground under it.
+                    // On the ground, onto nothing: it is carried by the ground under it, and so are the partitions on it.
                     if (Math.Abs((_document.FindLevel(floor.LevelId)?.Elevation ?? 0) - Lowest) < 1) continue;
-                    _loading.Problems.Add(new AnalyticalProblem("It spans onto nothing in the analytical model: no bearing wall or beam is under it, across the way it spans.", new Element[] { floor }));
+                    _loading.Problems.Add(new AnalyticalProblem("It spans onto nothing in the analytical model: no bearing wall or beam is under it, across the way it spans." + NotBearingUnder(floor, height), new Element[] { floor }));
                     continue;
                 }
+
+                var (partition, partitionDead, why) = Partitions(floor);
+                var weight = Loads.Weight(_document, type.Structure) + partitionDead;
 
                 if (carried < 0.9 * floor.Area / 1e6)
                     _loading.Problems.Add(new AnalyticalProblem($"Only {carried / (floor.Area / 1e6):0%} of it reaches what carries it in the analytical model, spanning the way it does: the rest has no bearing wall or beam across it.", new Element[] { floor }));
@@ -508,6 +517,44 @@ public sealed class StructuralLoading
         }
 
         private double Lowest => _document.Levels.Count == 0 ? 0 : _document.Levels.Min(level => level.Elevation);
+
+        /// <summary>Walls drawn but not set bearing - Non-bearing, not curtain walls - whose tops come up within 600 of a height.</summary>
+        private IEnumerable<Wall> NotBearingAt(double height) => _document.Walls.Where(wall => wall.StructuralUsage == StructuralUsage.NonBearing && !_document.IsCurtainWall(wall)
+            && _document.GetWallType(wall) is not null && Math.Abs(wall.GetTopElevation(_document) - height) <= 600);
+
+        /// <summary>
+        /// What to say of the walls under a floor or a flat roof that are drawn but not set bearing - their middles inside it, their tops
+        /// at its underside: they would carry it if they were set so. Nothing when there are none.
+        /// </summary>
+        private string NotBearingUnder(Slab slab, double height)
+        {
+            // A wall drawn along its edge as well as one inside it: its middle within its half-thickness of the edge.
+            var edge = slab.Boundary;
+            var walls = NotBearingAt(height).Where(wall =>
+            {
+                var middle = wall.Start.MidpointTo(wall.End);
+                var reach = Footings.WallThickness(_document, wall) / 2 + 1;
+                return slab.Contains(middle) || Enumerable.Range(0, edge.Count).Any(i => Line2D.DistanceFromSegment(middle, edge[i], edge[(i + 1) % edge.Count]) <= reach);
+            }).ToList();
+            return walls.Count == 0 ? string.Empty : NotBearingSaid(walls, "under it");
+        }
+
+        /// <summary>What to say of the walls along an eave, within a reach of its line, drawn but not set bearing.</summary>
+        private string NotBearingAlong(Point2D a, Point2D b, double reach, double height)
+        {
+            var along = (b - a).NormalisedOrDefault(Vector2D.UnitX);
+            var walls = NotBearingAt(height).Where(wall => !wall.IsCurved && Math.Abs((wall.End - wall.Start).NormalisedOrDefault(Vector2D.UnitX).Cross(along)) < 0.05
+                && Line2D.DistanceFromSegment(wall.Start.MidpointTo(wall.End), a - along * 1e5, b + along * 1e5) <= reach).ToList();
+            return walls.Count == 0 ? string.Empty : NotBearingSaid(walls, "under its eave");
+        }
+
+        private string NotBearingSaid(IReadOnlyList<Wall> walls, string where)
+        {
+            var names = walls.Select(wall => _document.GetWallType(wall)!.Name).Distinct().ToList();
+            return walls.Count == 1
+                ? $" The wall {where}, {names[0]}, is Non-bearing: set its Structural Usage to Bearing to carry it."
+                : $" {walls.Count} walls {where} - {string.Join(", ", names)} - are Non-bearing: set the Structural Usage of those that carry it to Bearing.";
+        }
 
         private void Line(LoadCase loadCase, Bearing bearing, double start, double end, double down, string said)
         {
@@ -673,7 +720,7 @@ public sealed class StructuralLoading
                     }).ToList();
                     if (under.Count == 0)
                     {
-                        _loading.Problems.Add(new AnalyticalProblem($"Its slope over the eave from ({a.X:0}, {a.Y:0}) bears on nothing in the analytical model: no bearing wall runs under it.", new Element[] { roof }));
+                        _loading.Problems.Add(new AnalyticalProblem($"Its slope over the eave from ({a.X:0}, {a.Y:0}) bears on nothing in the analytical model: no bearing wall runs under it." + NotBearingAlong(a, b, edge.Overhang + 600, roof.BaseElevation(_document)), new Element[] { roof }));
                         continue;
                     }
 
@@ -729,7 +776,7 @@ public sealed class StructuralLoading
             var spread = Spread(roof, roof.BaseElevation(_document), out _);
             if (spread.Count == 0)
             {
-                _loading.Problems.Add(new AnalyticalProblem("It spans onto nothing in the analytical model: no bearing wall or beam is under it, across its short way.", new Element[] { roof }));
+                _loading.Problems.Add(new AnalyticalProblem("It spans onto nothing in the analytical model: no bearing wall or beam is under it, across its short way." + NotBearingUnder(roof, roof.BaseElevation(_document)), new Element[] { roof }));
                 return;
             }
 

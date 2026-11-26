@@ -229,12 +229,30 @@ public static class StairModel
                 var (min, max) = (new Point2D(step.Outline.Min(point => point.X), step.Outline.Min(point => point.Y)), new Point2D(step.Outline.Max(point => point.X), step.Outline.Max(point => point.Y)));
                 if (min.X > band.Max.X || max.X < band.Min.X || min.Y > band.Max.Y || max.Y < band.Min.Y) continue;
                 if (PolygonBoolean.Combine(band.Band, step.Outline, BooleanOperation.Intersection).Sum(region => region.Area) < 5000) continue;
+                if (ThroughOpening(document, band.Wall, step)) continue;
                 through.Add((band.Wall, step.Number));
                 break;
             }
         }
 
         return through;
+    }
+
+    /// <summary>
+    /// Whether a step passes through an opening in a wall rather than the wall - one cut for the stair, as where a split-level house's flights
+    /// leave its living room, or a doorway: its run along the wall within the opening's width, its tread within the opening's height and 100
+    /// under its head at least (round 143).
+    /// </summary>
+    private static bool ThroughOpening(BimDocument document, Wall wall, StairStep step)
+    {
+        var way = (wall.End - wall.Start).NormalisedOrDefault(Vector2D.UnitX);
+        var alongs = step.Outline.Select(point => (point - wall.Start).Dot(way)).ToList();
+        var (from, to) = (alongs.Min(), alongs.Max());
+        var bottom = wall.GetBaseElevation(document);
+        bool Covers(double middle, double width, double sill, double height) =>
+            middle - width / 2 <= from + 5 && middle + width / 2 >= to - 5 && bottom + sill <= step.Top + 1 && bottom + sill + height >= step.Top + 100;
+        return document.All<WallOpening>().Any(opening => opening.HostWallId == wall.Id && Covers(opening.DistanceAlongWall, opening.Width, opening.SillHeight, opening.Height))
+               || document.All<Door>().Any(door => door.HostWallId == wall.Id && document.FindType<DoorType>(door.TypeId) is { } type && Covers(door.DistanceAlongWall, type.Width, 0, type.Height));
     }
 
     /// <summary>

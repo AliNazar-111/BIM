@@ -61,6 +61,7 @@ public static class Approaches
         {
             _ when standard.IsUs() => (915.0, $"the ADA asks for an accessible route 36 in{Units.MetricAside("915")} wide (403.5.1)"),
             ClearanceStandard.ApprovedDocumentM3 => (1200.0, "Approved Document M asks a wheelchair user's approach for 1200 (M4(3) 3.9b)"),
+            ClearanceStandard.ApprovedDocumentM1 => (900.0, "Approved Document M asks for 900 (M4(1) 1.6c)"),
             _ => (900.0, "Approved Document M asks for 900 (M4(2) 2.9b)")
         };
         if (width < least - 0.5) problems.Add($"It is {Units.Bare(width)} wide: {rule}.");
@@ -189,6 +190,9 @@ public static class Approaches
         if (standard.IsUs() || !IsApproachedEntrance(document, door)) return Array.Empty<(string, string)>();
         if (document.Find<Wall>(door.HostWallId) is not { } wall || document.GetWallType(wall) is not { } wallType) return Array.Empty<(string, string)>();
         if (!Domestic.Rules(document, door)) return Volume2Entrance(document, door, wall, wallType);
+
+        // A visitable dwelling's: M4(1) asks no landing or cover at the door - its width and threshold only (1.14, round 148).
+        if (standard == ClearanceStandard.ApprovedDocumentM1) return Array.Empty<(string, string)>();
 
         var wheelchair = standard == ClearanceStandard.ApprovedDocumentM3;
         var (size, coverWidth, coverDepth, paragraph) = wheelchair ? (1500.0, 1200.0, 1200.0, "M4(3) 3.22") : (1200.0, 900.0, 600.0, "M4(2) 2.20");

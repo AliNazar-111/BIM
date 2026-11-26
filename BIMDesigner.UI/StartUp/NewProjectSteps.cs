@@ -28,7 +28,7 @@ public sealed class NewProjectSteps : Grid
     /// </summary>
     public static readonly string[] BuildingTypes =
     {
-        "Detached house", "Semi-detached house", "Terraced house", "Bungalow", "Townhouse", "Duplex", "Flat", "Extension", "Office", "Shop", "Restaurant", "Hotel", "Hostel",
+        "Detached house", "Semi-detached house", "Terraced house", "Bungalow", "Townhouse", "Duplex", "Flat", "Apartments", "Extension", "Office", "Shop", "Restaurant", "Hotel", "Hostel",
         "Care home", "Hospital", "School", "Library", "Theatre", "Sports centre", "Factory", "Warehouse", "Other"
     };
 
@@ -40,6 +40,10 @@ public sealed class NewProjectSteps : Grid
     private readonly TextBox _client = Box(string.Empty);
     private readonly TextBox _address = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 52, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     private readonly ComboBox _buildingType = new() { ItemsSource = BuildingTypes, SelectedIndex = 0 };
+
+    // England's house: whether a planning condition asks M4(2) of it - unticked, it is checked as a visitable dwelling, M4(1) (round 148).
+    private readonly CheckBox _conditioned = new() { Content = "A planning condition asks for an accessible and adaptable home, M4(2)", IsChecked = true };
+    private FrameworkElement? _conditionField;
 
     private readonly ComboBox _station = new();
     private readonly TextBox _altitude = Box("0");
@@ -104,7 +108,7 @@ public sealed class NewProjectSteps : Grid
         foreach (var box in new[] { _number, _client, _address, _altitude, _winter, _snow, _frost, _height, _folder }) box.TextChanged += (_, _) => Changed();
         foreach (var picker in new Selector[] { _station, _ground, _storeys }) picker.SelectionChanged += (_, _) => Changed();
         _buildingType.SelectionChanged += (_, _) => Changed();
-        foreach (var tick in new[] { _basement, _saveNow })
+        foreach (var tick in new[] { _basement, _saveNow, _conditioned })
         {
             tick.Checked += (_, _) => Changed();
             tick.Unchecked += (_, _) => Changed();
@@ -190,6 +194,9 @@ public sealed class NewProjectSteps : Grid
 
     public CheckBox Basement => _basement;
 
+    /// <summary>England's house: ticked, a planning condition asks M4(2); unticked, it is checked as visitable, M4(1).</summary>
+    public CheckBox PlanningCondition => _conditioned;
+
     public TextBox FileName => _fileName;
 
     public TextBox Folder => _folder;
@@ -247,6 +254,7 @@ public sealed class NewProjectSteps : Grid
     public NewProjectSpec Spec => new()
     {
         Template = _template, Name = _name.Text.Trim(), Number = _number.Text, Client = _client.Text, Address = _address.Text, BuildingType = _buildingType.SelectedItem as string ?? string.Empty,
+        Visitable = _conditioned.IsChecked != true,
         HeatingLocation = (_station.SelectedItem as ComboBoxItem)?.Tag is HeatingLocation location ? location : HeatingLocation.London,
         SiteAltitude = Number(_altitude.Text) ?? 0,
         Ground = (_ground.SelectedItem as ComboBoxItem)?.Tag is GroundType ground ? ground : GroundType.FirmClay,
@@ -363,6 +371,7 @@ public sealed class NewProjectSteps : Grid
         Line("Client", spec.Client.Trim());
         Line("Address", string.Join(", ", spec.Address.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)));
         Line("Building", spec.BuildingType.Trim());
+        if (spec.Template == ProjectTemplate.EnglandHouse) Line("Access", spec.Visitable ? "Visitable, M4(1) - no planning condition" : "Accessible and adaptable, M4(2) - by planning condition");
         Line("Climate", Us
             ? spec.WinterDesignTemperature is { } winter ? $"{winter:0} °F winter design temperature" : "Winter design temperature to be set"
             : $"{Station(spec.HeatingLocation)}, {spec.SiteAltitude:0} m up");
@@ -448,6 +457,10 @@ public sealed class NewProjectSteps : Grid
         page.Children.Add(Pair(Field("Project number", _number), Field("Building type", _buildingType)));
         page.Children.Add(Field("Client", _client));
         page.Children.Add(Field("Site address", _address));
+        _conditionField = Field("Access", _conditioned,
+            "Approved Document M: with no planning condition, a new home need only be visitable, M4(1) - a WC on the entrance storey, a 775 front door, switches 450 to 1200. With one, accessible and adaptable, M4(2).");
+        page.Children.Add(_conditionField);
+        ShowCondition();
         return page;
     }
 
@@ -474,9 +487,16 @@ public sealed class NewProjectSteps : Grid
         return page;
     }
 
+    /// <summary>The access question, for England's house only - the wheelchair user home is M4(3), the US's the IRC.</summary>
+    private void ShowCondition()
+    {
+        if (_conditionField is not null) _conditionField.Visibility = _template == ProjectTemplate.EnglandHouse ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     /// <summary>The site's questions for the template picked: England's weather station and altitude, or the US jurisdiction's design conditions.</summary>
     private void ShowSite()
     {
+        ShowCondition();
         _ukSite.Visibility = Us ? Visibility.Collapsed : Visibility.Visible;
         _usSite.Visibility = Us ? Visibility.Visible : Visibility.Collapsed;
         if (_siteIntro is not null)

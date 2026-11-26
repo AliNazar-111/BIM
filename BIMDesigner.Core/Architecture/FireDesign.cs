@@ -307,7 +307,8 @@ public static class FireDesign
         var words = type.ToLowerInvariant().Split(new[] { ' ', ',', '-', '/', '(', ')' }, StringSplitOptions.RemoveEmptyEntries);
         bool Is(params string[] names) => words.Any(word => names.Any(name => word.StartsWith(name, StringComparison.Ordinal)));
         if (Is("office")) return BuildingUse.Office;
-        if (Is("flat", "apartment")) return BuildingUse.Flats;
+        // Flats; in the US apartments, condos, a triplex or more, a multifamily building - Group R-2 under the IBC (round 144).
+        if (Is("flat", "apartment", "condo", "triplex", "fourplex", "quadplex", "multifamily") || Is("multi") && Is("family")) return BuildingUse.Flats;
         // A residential or nursing home, a boarding or guest house: its rooms are rooms for residential purposes, not a dwelling's (Regulation 2).
         if (Is("care", "nursing", "residential") && Is("home") || Is("boarding", "guest", "lodging") && Is("house") || Is("guesthouse")) return BuildingUse.Other;
         // A US home under the IRC: a townhouse, a duplex, a one- or two-family dwelling (round 140).

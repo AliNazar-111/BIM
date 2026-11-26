@@ -237,6 +237,9 @@ public static class FireSeparation
         if (above) return null;
         var roofs = document.All<Roof>().Where(roof => !roof.IsExtrusion && roof.Contains(middle)).ToList();
         if (roofs.Count == 0) return null;
+
+        // Attached to the roof over it, it follows its underside up (round 147).
+        if (wall.AttachedRoof(document) is { } attached && roofs.Contains(attached)) return null;
         var underside = roofs.Max(roof => roof.UndersideAt(document, middle));
         return underside - top > 50 ? (underside - top, true) : null;
     }

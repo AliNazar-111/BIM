@@ -44,6 +44,9 @@ public static class Services
             ClearanceStandard.Ada => (381, 1219, 0, $"ADA 308 keeps what is reached for within 15 to 48 in{Units.MetricAside("381 to 1219")} of the floor."),
             _ when board => (1350, 1450, 0, "Approved Document M (1.18b) puts a consumer unit's switches 1350 to 1450 above the floor."),
             ClearanceStandard.ApprovedDocumentM3 => (700, 1000, 700, "Approved Document M (M4(3) 3.44b) puts switches, sockets and controls 700 to 1000 above the floor, 700 from an inside corner."),
+            // A visitable dwelling (round 148): switches and sockets' centre lines 450 to 1200 up, no corner distance, no heating controls (M4(1) 1.18a).
+            ClearanceStandard.ApprovedDocumentM1 when control => null,
+            ClearanceStandard.ApprovedDocumentM1 => (450, 1200, 0, "Approved Document M (M4(1) 1.18a, Diagram 1.5) puts switches and sockets with their centre lines 450 to 1200 above the floor."),
             _ when control => (900, 1200, 300, "Approved Document M (M4(2) 2.30e) puts heating controls 900 to 1200 above the floor, 300 from an inside corner."),
             _ => (450, 1200, 300, "Approved Document M (M4(2) 2.30b) puts switches and sockets 450 to 1200 above the floor, 300 from an inside corner.")
         };

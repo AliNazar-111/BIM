@@ -79,6 +79,8 @@ public static partial class ProjectFile
                 ClearanceStandard = document.ProjectInformation.ClearanceStandard.ToString(),
                 Units = document.ProjectInformation.Units.ToString(),
                 Sprinklered = document.ProjectInformation.Sprinklered,
+                MaterialChange = document.ProjectInformation.MaterialChange == MaterialChange.None ? null : document.ProjectInformation.MaterialChange.ToString(),
+                PreviousUse = document.ProjectInformation.PreviousUse.Length == 0 ? null : document.ProjectInformation.PreviousUse,
                 PhasedEvacuation = document.ProjectInformation.PhasedEvacuation,
                 ReduceImposedLoads = document.ProjectInformation.ReduceImposedLoads,
                 WaterOptionalRequirement = document.ProjectInformation.WaterOptionalRequirement,
@@ -1889,6 +1891,8 @@ public static partial class ProjectFile
         // Written before a project had units of its own: a US project's are feet and inches.
         document.ProjectInformation.Units = ParseEnum(dto.Project.Units, document.ProjectInformation.ClearanceStandard.IsUs() ? UnitSystem.Imperial : UnitSystem.Metric);
         document.ProjectInformation.Sprinklered = dto.Project.Sprinklered;
+        document.ProjectInformation.MaterialChange = ParseEnum(dto.Project.MaterialChange, MaterialChange.None);
+        document.ProjectInformation.PreviousUse = dto.Project.PreviousUse ?? string.Empty;
         document.ProjectInformation.PhasedEvacuation = dto.Project.PhasedEvacuation;
         document.ProjectInformation.ReduceImposedLoads = dto.Project.ReduceImposedLoads;
         document.ProjectInformation.WaterOptionalRequirement = dto.Project.WaterOptionalRequirement;

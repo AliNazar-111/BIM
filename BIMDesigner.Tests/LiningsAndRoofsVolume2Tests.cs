@@ -234,7 +234,7 @@ public class LiningsAndRoofsVolume2Tests
         var expected = new Dictionary<string, PurposeGroup?>
         {
             ["Detached house"] = null, ["Semi-detached house"] = null, ["Terraced house"] = null, ["Bungalow"] = null, ["Townhouse"] = null, ["Duplex"] = null,
-            ["Flat"] = null, ["Extension"] = null,
+            ["Flat"] = null, ["Apartments"] = null, ["Extension"] = null,
             ["Office"] = PurposeGroup.Office, ["Shop"] = PurposeGroup.ShopAndCommercial, ["Restaurant"] = PurposeGroup.ShopAndCommercial,
             ["Hotel"] = PurposeGroup.ResidentialOther, ["Hostel"] = PurposeGroup.ResidentialOther, ["Care home"] = PurposeGroup.ResidentialInstitutional,
             ["Hospital"] = PurposeGroup.ResidentialInstitutional, ["School"] = PurposeGroup.AssemblyAndRecreation, ["Library"] = PurposeGroup.AssemblyAndRecreation,

@@ -46,7 +46,8 @@ public static class Warnings
         found.AddRange(ModelProblems(document));
         found.AddRange(Analytical(document));
         found.AddRange(Maintenance(document));
-        found.AddRange(Regulations(document));
+        // A conversion into homes: what regulation 6 does not ask left out - Part M, Part O, Part K of what is retained (round 145).
+        found.AddRange(Regulations(document).Where(warning => !Conversion.LeftOut(document, warning)));
         found.AddRange(MepSystems.Problems(document)
             .Select(problem => new Warning(WarningKind.Services, Heading(problem.Element), problem.Text, new[] { problem.Element })));
         return found;
@@ -302,6 +303,15 @@ public static class Warnings
 
         // Means of escape: inner rooms, a flat's walk from its entrance door, the common parts' to a stair (Approved Document B Volume 1).
         foreach (var problem in Escape.Problems(document))
+            yield return For(problem.Room, Named(problem.Room, problem.Said));
+        // A house's WC on the storey visitors use (Approved Document M, M4(1) 1.17a, M4(2) 2.27a, round 148).
+        foreach (var problem in Visitable.Problems(document))
+            yield return For(problem.Element, Named(problem.Element, problem.Said));
+        // A conversion's openings, a quarter of its floor at most (Approved Document L 11.7c, round 145).
+        foreach (var problem in Conversion.Problems(document))
+            yield return For(problem.Room, Named(problem.Room, problem.Said));
+        // A US apartment building, IBC Group R-2: sprinklers, its fire alarm, each story's exits, its corridors' widths (round 144).
+        foreach (var problem in Apartments.BuildingProblems(document))
             yield return For(problem.Room, Named(problem.Room, problem.Said));
         // Reverberation in the common parts of a block of flats (Approved Document E, E3, Section 7).
         foreach (var problem in SoundInsulation.Reverberation(document))

@@ -761,6 +761,12 @@ public static class Terrains
         (double Gap, double Asked, bool Descending, double Height)? worstSetback = null;
         double? worstTimber = null;
 
+        // Inside the building: on or in a pad - a point at a wall's end, on the inside, lands on the pad's very edge at the corner - or over a
+        // floor on a level below, a split level's lower half or a basement, dug out of the ground rather than ground beside the walls (round 143).
+        var below = document.All<Floor>().Where(floor => floor.Boundary.Count >= 3 && floor.LevelId != surface.LevelId && document.FindLevel(floor.LevelId) is { } floorLevel && floorLevel.Elevation < level - 1)
+            .Select(floor => floor.Boundary).Concat(pads).ToList();
+        bool Within(Point2D at) => below.Any(outline => Polygon2D.Contains(outline, at) || Enumerable.Range(0, outline.Count).Min(i => Line2D.DistanceFromSegment(at, outline[i], outline[(i + 1) % outline.Count])) < 10);
+
         foreach (var wall in document.Walls.Where(wall => wall.LevelId == surface.LevelId))
         {
             if (document.GetWallType(wall) is not { } type || type.Function != WallFunction.Exterior || wall.Length < 1) continue;
@@ -772,7 +778,7 @@ public static class Terrains
                 foreach (var side in new[] { 1.0, -1.0 })
                 {
                     var near = wall.PointAt(type.Structure, along, side * (half + 100));
-                    if (InPad(pads, near) || HeightAt(document, surface, near) is not { } ground) continue;
+                    if (InPad(pads, near) || Within(near) || HeightAt(document, surface, near) is not { } ground) continue;
 
                     // The floor inside, across the wall: the pad's top there, or the level.
                     var inside = wall.PointAt(type.Structure, along, -side * (half + 300));

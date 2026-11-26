@@ -1436,9 +1436,11 @@ public partial class MainWindow : Window
     private void ShowStairOptions()
     {
         _loadingOptions = true;
-        var types = _document.TypesOf<StairType>().OrderBy(type => type.Name).ToList();
+        var types = _document.TypesOf<StairType>().Where(type => ProjectTemplates.Fits(_document, type)).OrderBy(type => type.Name).ToList();
         StairTypePicker.ItemsSource = types;
         StairTypePicker.SelectedItem = types.FirstOrDefault(type => type.Id == Plan.ActiveStairTypeId)
+                                       // A US project's own: 7 3/4 in risers, 10 in treads (round 143).
+                                       ?? (_document.ProjectInformation.ClearanceStandard.IsUs() ? types.FirstOrDefault(type => type.Name.Contains(" in Rise", StringComparison.Ordinal)) : null)
                                        ?? types.FirstOrDefault(type => type.Construction == StairConstruction.Timber && !type.OpenRisers)
                                        ?? types.FirstOrDefault();
         Plan.ActiveStairTypeId = (StairTypePicker.SelectedItem as StairType)?.Id ?? Guid.Empty;
@@ -4274,6 +4276,9 @@ public partial class MainWindow : Window
     /// <summary>Whether a building other than a home is small premises by Approved Document B Volume 2 (2.2, 4.2), and why not (round 124).</summary>
     private static readonly ParameterDefinition SmallPremisesParameter = new("Small Premises (AD B Vol 2)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition SprinkleredParameter = new("Sprinklers Throughout", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition MaterialChangeParameter = new("Material Change of Use", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition PreviousUseParameter = new("Previous Use", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition Regulation6Parameter = new("Requirements (Regulation 6)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition PhasedEvacuationParameter = new("Phased Evacuation (AD B Vol 2)", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition ReduceImposedParameter = new("Imposed Loads Reduced by Area", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
 
@@ -4421,14 +4426,14 @@ public partial class MainWindow : Window
                 () => Clearances.Label(_document.ProjectInformation.ClearanceStandard),
                 text =>
                 {
-                    _document.ProjectInformation.ClearanceStandard = Enum.GetValues<ClearanceStandard>().FirstOrDefault(standard => Clearances.Label(standard) == text);
+                    _document.ProjectInformation.ClearanceStandard = ClearanceStandards.Offered.FirstOrDefault(standard => Clearances.Label(standard) == text, ClearanceStandard.ApprovedDocumentM);
                     Plan.RefreshModel();
                     if (Plan.ShowClearances) ShowClearances(true);
 
                     // The other country's settings in place of these.
                     Dispatcher.BeginInvoke(DispatcherPriority.Background, RefreshProperties);
                 },
-                Enum.GetValues<ClearanceStandard>().Select(Clearances.Label).ToArray()),
+                ClearanceStandards.Offered.Select(Clearances.Label).ToArray()),
             ParameterValue.BindChoice(BuildingTypeParameter, () => _document.ProjectInformation.BuildingType, type =>
             {
                 _document.ProjectInformation.BuildingType = type;
@@ -4442,6 +4447,15 @@ public partial class MainWindow : Window
                 _document.ProjectInformation.ReduceImposedLoads = reduce;
                 if (ShowsAnalytical) ShowAnalytical();
             }),
+            // A conversion into homes: regulation 5's case, what it was before, and what regulation 6 asks of it (round 145).
+            ParameterValue.BindChoice(MaterialChangeParameter, () => Conversion.Said(_document.ProjectInformation.MaterialChange), text =>
+            {
+                _document.ProjectInformation.MaterialChange = Enum.GetValues<MaterialChange>().FirstOrDefault(change => Conversion.Said(change) == text);
+                Plan.RefreshModel();
+                Dispatcher.BeginInvoke(DispatcherPriority.Background, RefreshProperties);
+            }, Enum.GetValues<MaterialChange>().Select(Conversion.Said).ToArray()),
+            ParameterValue.Bind(PreviousUseParameter, () => _document.ProjectInformation.PreviousUse, text => _document.ProjectInformation.PreviousUse = (text ?? string.Empty).Trim()),
+            ParameterValue.ReadOnly(Regulation6Parameter, () => Conversion.Requirements(_document)),
             ParameterValue.Bind(SprinkleredParameter, () => _document.ProjectInformation.Sprinklered, sprinklered =>
             {
                 _document.ProjectInformation.Sprinklered = sprinklered;

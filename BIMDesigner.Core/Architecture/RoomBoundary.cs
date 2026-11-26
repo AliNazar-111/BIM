@@ -249,6 +249,8 @@ public static class RoomBoundary
     private static List<Segment> Collect(BimDocument document, Guid levelId) =>
         document.Walls
             .Where(wall => wall.LevelId == levelId && wall.RoomBounding && wall.Length > NodeTolerance)
+            // And a wall from a level below standing up through this one - the wall between a split-level house's halves (round 143).
+            .Concat(SplitLevels.StandingThrough(document, levelId).Where(wall => wall.RoomBounding && wall.Length > NodeTolerance))
             .SelectMany(Pieces)
             .Concat(document.All<RoomSeparator>()
                 .Where(line => line.LevelId == levelId && line.Length > NodeTolerance)
@@ -456,9 +458,11 @@ public static class RoomBoundary
         foreach (var candidate in candidates)
         {
             // Never take the identical edge straight back on itself unless nothing else
-            // exists; that is handled by giving it the largest possible turn.
+            // exists; that is handled by giving it a turn larger than any real one - two full
+            // turns, not double.MaxValue - 1, which is double.MaxValue itself and so was never
+            // taken: a nib's free end stopped the walk, and the room round it was not enclosed.
             var isReverse = Same(candidate.To, incoming.From) && Same(candidate.From, incoming.To);
-            var turn = isReverse ? double.MaxValue - 1 : ClockwiseAngle(back, candidate.Direction);
+            var turn = isReverse ? 4 * Math.PI : ClockwiseAngle(back, candidate.Direction);
 
             if (turn >= bestTurn) continue;
 
@@ -510,12 +514,19 @@ public static class RoomBoundary
             var next = lines[(i + 1) % lines.Count];
 
             // Parallel neighbours - a side cut where a wall tees into it from beyond - have no
-            // corner: the shared node, carried onto the face the side goes on along.
+            // corner: the shared node, carried onto the face the side goes on along. Turning
+            // back at a nib's free end, the node carried onto both faces: its end squared off.
             if (Line2D.TryIntersect(current, next, out var corner)) polygon.Add(corner);
             else
             {
                 var node = loop[(i + 1) % loop.Count].From;
                 var direction = next.Direction.NormalisedOrDefault(Vector2D.UnitX);
+                if (current.Direction.Dot(next.Direction) < 0)
+                {
+                    var along = current.Direction.NormalisedOrDefault(Vector2D.UnitX);
+                    polygon.Add(current.Origin + along * (node - current.Origin).Dot(along));
+                }
+
                 polygon.Add(next.Origin + direction * (node - next.Origin).Dot(direction));
             }
         }

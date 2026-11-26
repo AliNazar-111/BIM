@@ -189,6 +189,11 @@ public static class Doors
                 break;
         }
 
+        // A visitable dwelling's front door and the doors on the storey visitors use (M4(1) 1.14a, 1.15a); the WC room's door opening outwards
+        // (M4(1) 1.17d, M4(2) 2.27d) - round 148.
+        if (homes)
+            foreach (var (said, rule) in Visitable.DoorProblems(document, door, type, standard)) Add(said, rule);
+
         // The US's egress door: one at least, side-hinged, 32 in by 78 in clear.
         if (standard.IsUs() && external && swings && !Kept(document, "egress door", () => document.All<Door>().Any(other =>
                 document.FindType<DoorType>(other.TypeId) is { Operation: DoorOperation.Swing or DoorOperation.DoubleSwing } otherType
@@ -270,7 +275,12 @@ public static class Doors
                     ? "IRC R308.4.1 makes all glass in a door a hazardous location: tempered or laminated safety glazing."
                     : "Approved Document K (5.1, Diagram 5.1) makes glass in a door below 1500 a critical location: safety glass to BS EN 12600, class 3 at least.");
 
-        if (!standard.IsUs() && external && UValueLimit(document, door, type) is var (limit, heat) && type.HeatTransferCoefficient > limit + 0.005)
+        // A conversion's outside door: retained, replaced over 3.3; new, 1.4 (Approved Document L 11.7, round 145).
+        if (!standard.IsUs() && external && Conversion.Applies(document))
+        {
+            if (type.HeatTransferCoefficient > 0 && Conversion.Energy(document, door, Conversion.Fabric.Door, type.HeatTransferCoefficient) is var (convertedSaid, convertedRule)) Add(convertedSaid, convertedRule);
+        }
+        else if (!standard.IsUs() && external && UValueLimit(document, door, type) is var (limit, heat) && type.HeatTransferCoefficient > limit + 0.005)
             Add($"its U-value is {type.HeatTransferCoefficient:0.0#}.", heat);
 
         // The entrance an approach path comes to: its landing outside, level and covered.

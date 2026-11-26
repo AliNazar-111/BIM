@@ -1447,6 +1447,10 @@ internal sealed class ProjectInformationDto
 
     public bool Sprinklered { get; set; }
 
+    /// <summary>A conversion's change of use and its use before (round 145); absent for a new building, and in files from before.</summary>
+    public string? MaterialChange { get; set; }
+    public string? PreviousUse { get; set; }
+
     public bool PhasedEvacuation { get; set; }
 
     public bool ReduceImposedLoads { get; set; }

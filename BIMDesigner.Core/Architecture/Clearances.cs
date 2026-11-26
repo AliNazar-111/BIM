@@ -22,13 +22,25 @@ public enum ClearanceStandard
     Irc,
 
     /// <summary>The 2010 ADA Standards for Accessible Design.</summary>
-    Ada
+    Ada,
+
+    /// <summary>
+    /// Approved Document M, Volume 1: Category 1 (M4(1)) visitable dwellings - what every new dwelling in England meets where no planning
+    /// condition asks M4(2) or M4(3) of it (0.3, round 148).
+    /// </summary>
+    ApprovedDocumentM1
 }
 
 public static class ClearanceStandards
 {
     /// <summary>Whether a standard is one of the US's - the IRC or the ADA - so the project is built to the US codes.</summary>
     public static bool IsUs(this ClearanceStandard standard) => standard is ClearanceStandard.Irc or ClearanceStandard.Ada;
+
+    /// <summary>The standards in the order they are offered: England's three categories of dwelling, then the US's.</summary>
+    public static readonly ClearanceStandard[] Offered =
+    {
+        ClearanceStandard.ApprovedDocumentM1, ClearanceStandard.ApprovedDocumentM, ClearanceStandard.ApprovedDocumentM3, ClearanceStandard.Irc, ClearanceStandard.Ada
+    };
 }
 
 /// <summary>
@@ -52,9 +64,14 @@ public sealed record BlockedClearance(ClearanceZone Zone, string By, string Fitt
 
 /// <summary>
 /// The clear space a WC, basin, bath, shower, bed, wardrobe, kitchen or dining table needs round
-/// it - as Approved Document M asks of an accessible and adaptable dwelling (M4(2)) or a
-/// wheelchair user's (M4(3)), as the IRC asks of a US house, or as the ADA asks - and what is
-/// standing in it.
+/// it - as Approved Document M asks of a visitable dwelling (M4(1)), an accessible and adaptable
+/// one (M4(2)) or a wheelchair user's (M4(3)), as the IRC asks of a US house, or as the ADA asks -
+/// and what is standing in it.
+///
+/// M4(1) (1.17, Diagram 1.3, round 148): 750 in front of the WC on the storey visitors use, 450
+/// either side of its centreline - 400 on one side for an oblique transfer - a basin coming into
+/// it by 100 at most, as Diagram 1.4's examples have it; one such WC is enough, and nothing is
+/// asked round a basin, bath, shower, bed or kitchen.
 ///
 /// M4(2) (Diagram 2.5, 2.24, 2.25): 1100 in front of a WC from 350 on its wall side to 1000 on
 /// its open side, a basin coming into it by 300 at most; 1100 by 700 in front of a basin and
@@ -87,6 +104,7 @@ public static class Clearances
     public static string Label(ClearanceStandard standard) => standard switch
     {
         ClearanceStandard.ApprovedDocumentM3 => "Approved Document M (M4(3))",
+        ClearanceStandard.ApprovedDocumentM1 => "Approved Document M (M4(1))",
         ClearanceStandard.Irc => "IRC 2021",
         ClearanceStandard.Ada => "ADA 2010",
         _ => "Approved Document M (M4(2))"
@@ -116,6 +134,14 @@ public static class Clearances
         var ada = standard == ClearanceStandard.Ada;
         var irc = standard == ClearanceStandard.Irc;
         var m43 = standard == ClearanceStandard.ApprovedDocumentM3;
+        var m41 = standard == ClearanceStandard.ApprovedDocumentM1;
+
+        // A visitable dwelling, M4(1) (round 148): a WC's access zone, and nothing asked round a basin, a bath, a shower, a bed or a kitchen.
+        if (m41 && place == Toilets.Place.None && type.Form is ComponentForm.Basin or ComponentForm.Bath or ComponentForm.Shower or ComponentForm.Bed
+                or ComponentForm.BunkBed or ComponentForm.Wardrobe or ComponentForm.Drawers or ComponentForm.Counter or ComponentForm.Sink or ComponentForm.Cooker
+                or ComponentForm.Dishwasher or ComponentForm.WashingMachine or ComponentForm.Fridge or ComponentForm.TumbleDryer or ComponentForm.TallUnit
+                or ComponentForm.OvenHousing)
+            yield break;
 
         // Which side a WC's wall is on: the near one, or either where neither is within 600.
         int[] WallSides()
@@ -206,6 +232,16 @@ public static class Clearances
                     BasinMay: 200);
                 break;
 
+            // M4(1) Diagram 1.3: 750 clear in front of the pan, 450 (500 preferred) either side of its centreline for a frontal transfer - or,
+            // for an oblique one with the door in the side wall at its front, 450 on one side and 400 on the other; a basin coming into it as
+            // Diagram 1.4's examples have it, 100, and no further (1.17b, c).
+            case ComponentForm.Toilet or ComponentForm.WallHungToilet when m41:
+                yield return new Zone("the access zone in front of the WC",
+                    new[] { new Area(-450, 450, halfD, halfD + 750), new Area(-450, 400, halfD, halfD + 750), new Area(-400, 450, halfD, halfD + 750) },
+                    "Approved Document M (M4(1) 1.17b, Diagram 1.3) asks for 750 clear in front of a WC, 450 either side of its centreline - or 450 one side and 400 the other where the door is in the side wall at its front; a basin may come into it by 100 at most, as Diagram 1.4 shows.",
+                    BasinMay: 100);
+                break;
+
             case ComponentForm.Toilet or ComponentForm.WallHungToilet:
                 yield return new Zone("the access zone in front of the WC",
                     WallSides().Select(side => side < 0 ? new Area(-350, 1000, halfD, halfD + 1100) : new Area(-1000, 350, halfD, halfD + 1100)).ToArray(),
@@ -278,8 +314,10 @@ public static class Clearances
                     Round: true);
                 break;
 
+            // In front of it, or - as a bath's - from either end of it along its open side: a corner shower's against its side wall (round 147).
             case ComponentForm.Shower:
-                yield return new Zone("the access zone in front of the shower", new[] { new Area(-550, 550, halfD, halfD + 700) },
+                yield return new Zone("the access zone in front of the shower",
+                    new[] { new Area(-550, 550, halfD, halfD + 700), new Area(-halfW, -halfW + 1100, halfD, halfD + 700), new Area(halfW - 1100, halfW, halfD, halfD + 700) },
                     "Approved Document M (M4(2)) asks for 1100 by 700 clear beside a bath or shower.");
                 break;
 
@@ -419,6 +457,12 @@ public static class Clearances
         if (document.FindType<ComponentType>(component.TypeId) is not { } type) return Array.Empty<(ClearanceZone, IReadOnlyList<string>)>();
         if (OffTheFloor(document, component, type)) return Array.Empty<(ClearanceZone, IReadOnlyList<string>)>();
 
+        // A visitable house's WC: the one on the storey visitors use - the entrance storey, or the principal storey where the entrance storey
+        // has no habitable room (M4(1) 1.13, 1.17a); a WC on any other storey has no access zone asked of it (round 148). A flat's, wherever it is.
+        if (standard == ClearanceStandard.ApprovedDocumentM1 && Bathrooms.IsWc(type) && Visitable.Applies(document)
+            && Visitable.Storeys(document) is { Count: > 0 } visited && !visited.Contains(component.LevelId))
+            return Array.Empty<(ClearanceZone, IReadOnlyList<string>)>();
+
         // A kitchen's units and a dining table in a building other than a dwelling: M4(2)'s and the NKBA's spaces are a home's (round 118).
         if (type.Form is ComponentForm.Counter or ComponentForm.Sink or ComponentForm.Cooker or ComponentForm.Dishwasher or ComponentForm.WashingMachine
                 or ComponentForm.Fridge or ComponentForm.TumbleDryer or ComponentForm.TallUnit or ComponentForm.OvenHousing or ComponentForm.Table or ComponentForm.RoundTable
@@ -505,10 +549,26 @@ public static class Clearances
         return zones;
     }
 
+    /// <summary>
+    /// The WCs on a storey whose access zones need not be clear: in a visitable dwelling, every one but the first with its zone clear, where
+    /// one has - M4(1) asks one room with a WC and clear access to it (1.17a, b), not every WC (round 148). None under any other standard.
+    /// </summary>
+    private static IReadOnlyList<Component> SpareWcs(BimDocument document, Guid levelId, ClearanceStandard standard)
+    {
+        // A house's: in a block of flats each flat has its own WC to keep clear.
+        if (standard != ClearanceStandard.ApprovedDocumentM1 || !Visitable.Applies(document)) return Array.Empty<Component>();
+        var wcs = document.All<Component>()
+            .Where(component => component.LevelId == levelId && document.FindType<ComponentType>(component.TypeId) is { } type && Bathrooms.IsWc(type) && Domestic.Rules(document, component))
+            .ToList();
+        var clear = wcs.FirstOrDefault(wc => Of(document, wc, standard) is { Count: > 0 } zones && zones.All(zone => zone.In.Count == 0));
+        return clear is null ? Array.Empty<Component>() : wcs.Where(wc => wc != clear).ToList();
+    }
+
     /// <summary>Every zone on a storey that something is standing in, and what - the fittings', then the doors'.</summary>
     public static IReadOnlyList<BlockedClearance> Blocked(BimDocument document, Guid levelId, ClearanceStandard standard) =>
         document.All<Component>()
             .Where(component => component.LevelId == levelId)
+            .Except(SpareWcs(document, levelId, standard))
             .SelectMany(component => Of(document, component, standard)
                 .Where(zone => zone.In.Count > 0)
                 .Select(zone => new BlockedClearance(zone.Zone, string.Join(", ", zone.In), document.FindType<ComponentType>(component.TypeId)?.Name ?? "A fitting")))

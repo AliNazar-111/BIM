@@ -327,7 +327,7 @@ public class StairTests
         var loaded = ProjectFile.FromJson(ProjectFile.ToJson(document));
         var back = loaded.Elements.OfType<Stair>().Single();
         Assert.Equal((StairShape.QuarterTurn, StairCorner.Winders, "S1", stair.TopLevelId), (back.Shape, back.Corner, back.Mark, back.TopLevelId));
-        Assert.Equal(7, loaded.TypesOf<StairType>().Count());
+        Assert.Equal(9, loaded.TypesOf<StairType>().Count());
 
         // Mirrored, it turns the other way; turned, its way up turns with it.
         new MirrorElementsCommand(new[] { stair }, new Line2D(new Point2D(3000, 0), new Vector2D(0, 1))).Redo();

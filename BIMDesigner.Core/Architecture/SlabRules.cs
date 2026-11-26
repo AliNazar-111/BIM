@@ -141,12 +141,16 @@ public static class SlabRules
 
             // Between the dwelling units of a two-family dwelling (IRC R302.3, round 140).
             if (slab is Floor units)
-                foreach (var (said, rule) in UnitSeparation.Problems(document, units, type)) Add(said, rule);
+                foreach (var (said, rule) in UnitSeparation.Problems(document, units, type).Concat(Apartments.Problems(document, units, type))) Add(said, rule);
             return problems;
         }
 
         var home = Domestic.Rules(document);
-        if (slab is Floor && OnTheGround(document, slab) && UValue(document, slab) is { } floorU && floorU > Thermal.FloorLimit + 0.005)
+        // A conversion's ground floor and roof: retained, Table 4.3; new, Table 4.2 (Approved Document L 11.7, round 145).
+        if (Conversion.Applies(document) && slab is Floor or Roof && (slab is Roof || OnTheGround(document, slab)) && UValue(document, slab) is { } convertedU
+            && Conversion.Energy(document, slab, slab is Roof ? Conversion.Fabric.Roof : Conversion.Fabric.Floor, convertedU) is var (convertedSaid, convertedRule))
+            Add(convertedSaid, convertedRule);
+        else if (!Conversion.Applies(document) && slab is Floor && OnTheGround(document, slab) && UValue(document, slab) is { } floorU && floorU > Thermal.FloorLimit + 0.005)
             Add($"its U-value is {floorU:0.00}, the ground under it counted.", home
                 ? "Approved Document L (Table 4.1) limits a new dwelling's ground floor to a U-value of 0.18 W/m²K."
                 : "Approved Document L Volume 2 (Table 4.1) limits the ground floor of a new building other than a dwelling to a U-value of 0.18 W/m²K.");
@@ -189,7 +193,7 @@ public static class SlabRules
         {
             // A building other than a dwelling: a flat roof 0.18, a pitched one 0.16 (Approved Document L Volume 2 Table 4.1, round 118).
             var flatRoof = !home && roof.Form == RoofForm.Flat;
-            if (UValue(document, roof) is { } roofU && roofU > (flatRoof ? 0.18 : Thermal.RoofLimit) + 0.005)
+            if (!Conversion.Applies(document) && UValue(document, roof) is { } roofU && roofU > (flatRoof ? 0.18 : Thermal.RoofLimit) + 0.005)
                 Add($"its U-value is {roofU:0.00}{(document.All<Ceiling>().Any() ? ", with the ceiling under it" : string.Empty)}.", home
                     ? "Approved Document L (Table 4.1) limits a new dwelling's roof to a U-value of 0.16 W/m²K - with a cold loft, its ceiling's insulation counted."
                     : $"Approved Document L Volume 2 (Table 4.1) limits {(flatRoof ? "a flat roof" : "a pitched roof")} of a new building other than a dwelling to a U-value of {(flatRoof ? "0.18" : "0.16")} W/m²K - with a cold loft, its ceiling's insulation counted.");

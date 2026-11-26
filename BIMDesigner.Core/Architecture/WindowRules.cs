@@ -115,6 +115,29 @@ public static class WindowRules
         ? WindowLights.Of(type).Sum(light => light.Area) / 1e6
         : Math.Max(0, type.Width - 2 * Frame) * Math.Max(0, type.Height - 2 * Frame) / 1e6;
 
+    /// <summary>Whether a room is habitable as R310.1 counts a basement's: not a hall, a store, a utility, plant or laundry room, a closet.</summary>
+    private static bool Habitable(Room room) =>
+        !new[] { "hall", "corridor", "landing", "stair", "store", "storage", "closet", "utility", "laundry", "plant", "mechanical", "furnace", "boiler", "garage" }
+            .Any(word => room.Name.Contains(word, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Whether a basement has an emergency escape and rescue opening: an escape window - 5 sq ft clear, as at grade or below - or a door out, in any of its rooms (R310.1).</summary>
+    private static bool BasementEscapes(BimDocument document, Guid levelId)
+    {
+        bool Work()
+        {
+            foreach (var room in document.All<Room>().Where(each => each.LevelId == levelId))
+            {
+                if (room.GetBoundary(document) is not { IsEnclosed: true } boundary) continue;
+                var (windows, doors) = Of(document, room, boundary.Polygon);
+                if (windows.Any(entry => Escapes(entry.Type, entry.Sill, true, true)) || doors.Any(entry => Architecture.Doors.External(document, entry.Door, entry.Type))) return true;
+            }
+
+            return false;
+        }
+
+        return ModelCache.Of(document) is { } cache ? cache.Keep("basement escapes", document, levelId, null, Work) : Work();
+    }
+
     /// <summary>Whether a window opens far enough to escape through and gives the clear opening asked, its bottom low enough - through one light of a divided one.</summary>
     public static bool Escapes(WindowType type, double sill, bool us, bool ground)
     {
@@ -243,7 +266,11 @@ public static class WindowRules
 
         // Approved Document L Volume 2 sets no limit for a display window (Table 4.1, note 10).
         var home = us || Domestic.Rules(document, window);
-        if (!us && type.HeatTransferCoefficient > 1.6 + 0.005 && document.GetWallType(wall) is { Function: WallFunction.Exterior } && (home || !Display(type)))
+        // A conversion's window: retained, replaced over 3.3; new, 1.4 (Approved Document L 11.7, round 145).
+        if (!us && Conversion.Applies(document) && type.HeatTransferCoefficient > 0 && document.GetWallType(wall) is { Function: WallFunction.Exterior }
+            && Conversion.Energy(document, window, Conversion.Fabric.Window, type.HeatTransferCoefficient) is var (convertedSaid, convertedRule))
+            Add(convertedSaid, convertedRule);
+        else if (!us && !Conversion.Applies(document) && type.HeatTransferCoefficient > 1.6 + 0.005 && document.GetWallType(wall) is { Function: WallFunction.Exterior } && (home || !Display(type)))
             Add($"its U-value is {type.HeatTransferCoefficient:0.0#}.", home
                 ? "Approved Document L (Table 4.1) limits a window in a new dwelling to a U-value of 1.6 W/m²K."
                 : "Approved Document L Volume 2 (Table 4.1) limits a window of a new building other than a dwelling to a U-value of 1.6 W/m²K - a display window to none.");
@@ -345,28 +372,43 @@ public static class WindowRules
         var bedroom = pieces.Any(type => type.Form is ComponentForm.Bed or ComponentForm.BunkBed);
         var said = new List<string>();
 
+        // What kind of room it is: a hall, a landing, a stair, a bathroom or WC not yet fitted out, a utility room or a garage is not a
+        // habitable room (Approved Document B Appendix A, Approved Document F, IRC R202) - no escape window, no purge air, and in the US no
+        // light, asked of it (round 147).
+        var kind = Mep.Lighting.KindOf(document, room, boundary.Polygon);
+        var habitable = kind is not (Mep.LitRoom.Hall or Mep.LitRoom.Stairs or Mep.LitRoom.Bathroom or Mep.LitRoom.Utility or Mep.LitRoom.Garage);
+
         // A home's room - or, in a building other than a dwelling, one judged by Approved Document F Volume 2 (round 118): no escape window, which
         // Approved Document B Volume 2 does not ask, and no principal window or purge by Volume 1.
         var home = Domestic.Rules(document, room);
 
         // An escape window.
-        if (home && (us ? bedroom : above > 1 && above <= 4500 + 0.5 && !Architecture.Doors.HasHighStorey(document)))
+        var apartments = us && Apartments.Applies(document);
+        // Approved Document B 2.2: each habitable room upstairs but a kitchen.
+        if (home && (us ? bedroom && (!apartments || Apartments.SingleExit(document, room)) : habitable && kind != Mep.LitRoom.Kitchen && above > 1 && above <= 4500 + 0.5 && !Architecture.Doors.HasHighStorey(document)))
         {
             var escapes = windows.Any(entry => Escapes(entry.Type, entry.Sill, us, above <= 1))
                 || RoofWindowsOver(document, room, boundary.Polygon).Any(frame => Escapes(frame, level?.Elevation ?? 0, us, above <= 1));
             said.Add(escapes
                 ? "an escape window"
+                : apartments
+                    ? $"no escape window - the IBC (1031.2, Table 1006.3.4(1)) asks one in every sleeping room on a story with one exit: 5.7 sq ft{Units.MetricAside("0.53 m²")} clear, 24 in high, 20 in wide, its sill 44 in{Units.MetricAside("1118")} up at most (1031.3)"
                 : us
                     ? $"no escape window - IRC R310.2 asks for one in every bedroom: 5.7 sq ft{Units.MetricAside("0.53 m²")} clear, 24 in high, 20 in wide, its sill 44 in{Units.MetricAside("1118")} up at most"
                     : "no escape window - Approved Document B (2.2, 2.10) asks for one in every habitable room up here: 0.33 m² clear, 450 by 450, its bottom 1100 up at most");
         }
+
+        // In the US, a basement with a habitable room: one emergency escape and rescue opening in it at least - an escape window or a door out
+        // anywhere in the basement - the sleeping rooms in it each their own, as above (IRC R310.1, round 143).
+        if (home && us && !apartments && !bedroom && SplitLevels.IsBasement(document, room.LevelId) && Habitable(room) && !BasementEscapes(document, room.LevelId))
+            said.Add($"no escape opening in the basement - IRC R310.1 asks a basement one emergency escape and rescue opening at least: a window 5 sq ft{Units.MetricAside("0.46 m²")} clear, 24 in high and 20 in wide, its sill 44 in{Units.MetricAside("1118")} up at most, or a door out");
 
         // The living room's principal window, low enough to see out of sitting down: its glass no
         // higher than 850 off the floor - or no higher than guarding to Part K makes it (Approved
         // Document M, M4(2) 2.24, and the same in a wheelchair user dwelling, M4(3)).
         var living = pieces.Any(type => type.Form is ComponentForm.Sofa or ComponentForm.CornerSofa) ||
                      new[] { "living", "lounge", "sitting", "family room", "reception" }.Any(word => room.Name.Contains(word, StringComparison.OrdinalIgnoreCase));
-        if (!us && home && living && windows.Count > 0)
+        if (!us && home && living && windows.Count > 0 && document.ProjectInformation.ClearanceStandard != ClearanceStandard.ApprovedDocumentM1)
         {
             var principal = windows.MaxBy(entry => GlassArea(entry.Type));
             var glass = principal.Sill + Frame;
@@ -376,20 +418,45 @@ public static class WindowRules
                 said.Add($"its principal window's glass starts {glass:0} up - Approved Document M (M4(2) 2.24, and M4(3) the same) asks for it to start no higher than 850 above the floor, to be seen out of sitting down{(guarded ? ", or as low as guarding allows" : string.Empty)}");
         }
 
-        // Its air - and, in the US, its light.
+        // Its air - and, in the US, its light: a habitable room's, not a hall's, a landing's, a stair's or a utility room's (IRC R202, R303.1,
+        // round 143; Approved Document F's purge, round 147). A building other than a dwelling's rooms are Volume 2's to judge.
+        if (!habitable && (us || home))
+            return said.Count == 0 ? null : $"Windows: {string.Join("; ", said)}";
         var open = windows.Sum(entry => OpenArea(entry.Type)) + doors.Sum(entry => entry.Type.Width * entry.Type.Height / 1e6);
         var wide = windows.Sum(entry => OpenAreas(entry.Type).Fully) + doors.Sum(entry => entry.Type.Width * entry.Type.Height / 1e6);
         if (us)
         {
             var glass = windows.Sum(entry => GlassArea(entry.Type)) + doors.Where(entry => Architecture.Doors.Glazed(entry.Type)).Sum(entry => Math.Max(0, entry.Type.Width - 200) * Math.Max(0, entry.Type.Height - 200) / 1e6 * 0.6);
-            if (glass < floor * 0.08 - 1e-6) said.Add($"glass {Units.OfSquareMetres(glass, "0.00")} - IRC R303.1 asks for 8% of its floor, {Units.OfSquareMetres(floor * 0.08, "0.00")}");
-            if (open < floor * 0.04 - 1e-6) said.Add($"opens {Units.OfSquareMetres(open, "0.00")} - IRC R303.1 asks for 4% of its floor, {Units.OfSquareMetres(floor * 0.04, "0.00")}");
+            if (glass < floor * 0.08 - 1e-6)
+            {
+                var (has, asks) = Apart(glass, floor * 0.08);
+                said.Add($"glass {has} - IRC R303.1 asks for 8% of its floor, {asks}");
+            }
+
+            if (open < floor * 0.04 - 1e-6)
+            {
+                var (has, asks) = Apart(open, floor * 0.04);
+                said.Add($"opens {has} - IRC R303.1 asks for 4% of its floor, {asks}");
+            }
         }
         else if (!home)
             said.AddRange(Volume2Air(document, room, boundary.Polygon, floor, open));
         else if (wide < floor / 20 - 1e-6 && open < floor / 10 - 1e-6)
-            said.Add($"opens {Units.OfSquareMetres(open, "0.00")} - Approved Document F (Table 1.4) asks for a twentieth of its floor, {Units.OfSquareMetres(floor / 20, "0.00")}, to purge its air (a tenth through windows opening only part way)");
+        {
+            // What is tested is said: the area opening fully against a twentieth, all of it against a tenth.
+            var (has, asks) = Apart(wide, floor / 20);
+            said.Add(open - wide > 1e-6
+                ? $"opens {has} fully and {Units.OfSquareMetres(open - wide, "0.00")} part way - Approved Document F (Table 1.4) asks for a twentieth of its floor, {asks}, opening fully, or a tenth, {Units.OfSquareMetres(floor / 10, "0.00")}, through windows opening only part way, to purge its air"
+                : $"opens {has} - Approved Document F (Table 1.4) asks for a twentieth of its floor, {asks}, to purge its air (a tenth through windows opening only part way)");
+        }
 
         return said.Count == 0 ? null : $"Windows: {string.Join("; ", said)}";
+    }
+
+    /// <summary>An area short of what is asked, and what is asked, m², said to two places - or three where two would say them the same.</summary>
+    private static (string Has, string Asks) Apart(double has, double asks)
+    {
+        var (a, b) = (Units.OfSquareMetres(has, "0.00"), Units.OfSquareMetres(asks, "0.00"));
+        return a != b ? (a, b) : (Units.OfSquareMetres(has, "0.000"), Units.OfSquareMetres(asks, "0.000"));
     }
 }

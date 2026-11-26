@@ -142,6 +142,8 @@ public static class WallRules
                     ? (1000.0, "Approved Document M Volume 2 (2.13b, Table 2) asks 1000 effective clear width through an outside door of a building the general public use.")
                     : (800.0, "Approved Document M Volume 2 (2.13b, Table 2) asks 800 effective clear width through an outside door of a new building approached straight on."),
                 ClearanceStandard.ApprovedDocumentM3 => (850.0, "Approved Document M (M4(3) 3.22) asks for 850 clear through every door, for a wheelchair user."),
+                // A visitable dwelling: M4(1) asks a width only of the principal private entrance (1.14a), not taken to be a curtain wall's door (round 148).
+                ClearanceStandard.ApprovedDocumentM1 => (0.0, string.Empty),
                 _ => (850.0, "Approved Document M (M4(2) 2.20d-e, 2.21) asks for 850 clear through an external door - a pair's main leaf.")
             };
             if (clear < wanted - 0.5)
@@ -171,7 +173,12 @@ public static class WallRules
         void Add(string said, string rule) => problems.Add(new PlacementProblem(wall, said, rule, outline));
 
         var (one, other) = RoomsBeside(document, wall);
-        if (!us && type.Function == WallFunction.Exterior && UValue(document, type) is { } u && u > Thermal.WallLimit + 0.005)
+        // A conversion's outside wall: retained, Table 4.3; new, Table 4.2 (Approved Document L 11.7, round 145).
+        if (!us && type.Function == WallFunction.Exterior && Conversion.Applies(document))
+        {
+            if (UValue(document, type) is { } converted && Conversion.Energy(document, wall, Conversion.Fabric.Wall, converted) is var (convertedSaid, convertedRule)) Add(convertedSaid, convertedRule);
+        }
+        else if (!us && type.Function == WallFunction.Exterior && UValue(document, type) is { } u && u > Thermal.WallLimit + 0.005)
             Add($"its U-value is {u:0.00}.", Domestic.Rules(document, one, other)
                 ? "Approved Document L (Table 4.1) limits an outside wall of a new dwelling to a U-value of 0.26 W/m²K."
                 : "Approved Document L Volume 2 (Table 4.1) limits a wall of a new building other than a dwelling to a U-value of 0.26 W/m²K.");
@@ -208,6 +215,9 @@ public static class WallRules
 
         // In the US, between the dwelling units of townhouses and two-family dwellings: rated, foundation to roof, parapets; what holds up a floor between them (IRC R302.2, R302.3, round 140).
         foreach (var (said, rule) in UnitSeparation.Problems(document, wall, type)) Add(said, rule);
+
+        // In a US apartment building, IBC Group R-2: between units, along a corridor, round an exit stair (420.2, 708, 1020.2, 1023.2, 1206.2; round 144).
+        foreach (var (said, rule) in Apartments.Problems(document, wall, type)) Add(said, rule);
 
         // In the US, its covering near the ground: wood 6 in clear or durable, stucco's weep screed 4 in up; shingles on 1/2 in sheathing (IRC R317.1, R703.7.2.1, R703.6.1, round 141).
         foreach (var (said, rule) in WallCoverings.Problems(document, wall, type)) Add(said, rule);
@@ -267,6 +277,9 @@ public static class WallRules
             && Math.Abs(way.Cross(other.Start.MidpointTo(other.End) - wall.Start)) < 50 && Math.Abs(way.Cross((other.End - other.Start).NormalisedOrDefault(way))) < 0.02).ToList();
         var top = wall.GetTopElevation(document);
         if (stack.Any(other => other.GetTopElevation(document) > top + 1)) return null;
+
+        // Attached to the roof over it, it follows its underside up - its top as the wall reports it is the roof's base, at the eaves (round 147).
+        if (wall.AttachedRoof(document) is { } attached && roofs.Contains(attached)) return null;
 
         var underside = roofs.Max(roof => roof.UndersideAt(document, middle));
         return underside - top > 50 ? underside - top : null;

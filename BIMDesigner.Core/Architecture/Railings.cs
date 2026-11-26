@@ -734,6 +734,15 @@ public static class Railings
         if (Host(document, railing) is { Opening: Window })
             return us ? (610, $"the IRC asks for {Units.Figure("610", "24 in")} across a window from the floor") : (800, "Approved Document K asks for 800 across a window from the floor");
 
+        if (us && Apartments.Applies(document))
+        {
+            var middle = railing.Path.Count >= 2 ? railing.Path[0].MidpointTo(railing.Path[1]) : default;
+            var unit = RoomsOf.Containing(document, railing.LevelId, middle) is { } room && Dwellings.Of(room).Length > 0;
+            return unit && Apartments.Stories(document).Count(story => story.AboveGrade > 0) <= 3
+                ? (914, $"the IBC asks for {Units.Figure("914", "36 in")} within a dwelling unit of a building three stories high at most (1015.3, exception 1)")
+                : (1067, $"the IBC asks for {Units.Figure("1067", "42 in")} in an apartment building's common parts (1015.3)");
+        }
+
         if (us)
             return BuildingOf(document, railing) == RailingBuilding.Dwelling
                 ? (914, $"the IRC asks for {Units.Figure("914", "36 in")} round a home")

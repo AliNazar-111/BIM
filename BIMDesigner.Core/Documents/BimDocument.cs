@@ -31,6 +31,14 @@ public sealed class ProjectInformation
     public bool Sprinklered { get; set; }
 
     /// <summary>
+    /// A material change of use into homes in England (regulation 5(a), (b) or (g)), or none for a new building - what regulation 6 then asks
+    /// of it (round 145); and what the building was used for before.
+    /// </summary>
+    public MaterialChange MaterialChange { get; set; }
+
+    public string PreviousUse { get; set; } = string.Empty;
+
+    /// <summary>
     /// Whether a building other than a dwelling is designed for phased evacuation (Approved Document B Volume 2 3.19 to 3.22): the fire floor
     /// first, then two floors at a time - its stairs sized by Table 3.3, approached through protected lobbies, every floor a compartment floor,
     /// an L3 alarm at least. Off, simultaneous evacuation: every storey at once, by Table 3.2.
@@ -537,7 +545,9 @@ public sealed class BimDocument
                      WallType { Log: not null } or WallType { Name: "Stud Wall - Acoustic 125mm" or "Timber Frame - Brick Clad 315mm" or "Timber Frame - Siding 183mm" or "Party Wall - Cavity Blockwork 300mm" or "Party Wall - Dense Cavity Blockwork 300mm" or "Separating Wall - Dense Blockwork 215mm"
                          or "Townhouse Area Separation Wall - 2 hr Gypsum Liner Panels" or "Unit Separation Wall - 2x4 Studs, 5/8 in Type X Each Side, 1 hr"
                          or "Wood Frame 2x6 - Board and Batten" or "Wood Frame 2x6 - Cedar Shingles" or "Wood Frame 2x6 - Stucco"
-                         or "Half-Timbered - Render on Block 330mm" } => !wallTypeNames.Contains(type.Name),
+                         or "Half-Timbered - Render on Block 330mm" or "Demising Wall - Staggered Studs, 5/8 in Type X Each Side, 1 hr, STC 51"
+                         or "Stone Wall - Rubble 500mm" or "Stone Wall - Rubble 500mm, Insulated Lining" or "Block Wall - Dense 100mm" } => !wallTypeNames.Contains(type.Name),
+                     StairType { Name: "Stair - Wood, 7 3/4 in Rise, 10 in Tread" or "Stair - Concrete Pan, 7 in Rise, 11 in Tread" } => !_types.Values.Any(own => string.Equals(own.Name, type.Name, StringComparison.OrdinalIgnoreCase)),
                      FloorType { Name: "Floor - Separating Slab, Floating 278mm" or "Floor - 2x10 Joists, 5/8 in Type X Ceiling, 1 hr" } => !_types.Values.Any(own => string.Equals(own.Name, type.Name, StringComparison.OrdinalIgnoreCase)),
                      RoofWindowType => !roofWindowTypes.Contains(type.Name),
                      FootingType => !footingTypes.Contains(type.Name),
@@ -1295,6 +1305,13 @@ public sealed class BimDocument
         var usDoubleHung = new WindowType("Double Hung - 36 x 60 in", 914, 1524)
         {
             TypeMark = "W17", AssemblyCode = "B2020", Operation = WindowOperation.DoubleHung, GlazingRows = 2, GlazingColumns = 1,
+            GlazingType = "Double glazed, low-E", FrameMaterial = "Vinyl", HeatTransferCoefficient = 1.6, Cost = 520m
+        };
+        // An egress casement (round 143): 30 x 48 in, its sash clear 25 x 43 in, 7.4 sq ft - an emergency escape and rescue opening by IRC
+        // R310.2.1, for a bedroom or a basement.
+        var usEgressCasement = new WindowType("Casement - 30 x 48 in, Egress", 762, 1219)
+        {
+            TypeMark = "W20", AssemblyCode = "B2020", Operation = WindowOperation.Casement,
             GlazingType = "Double glazed, low-E", FrameMaterial = "Vinyl", HeatTransferCoefficient = 1.6, Cost = 520m
         };
         var usCasement = new WindowType("Casement - 24 x 48 in", 610, 1219)
@@ -3026,6 +3043,17 @@ public sealed class BimDocument
             Description = "Approved Document E wall type 1.1, solid dense block plastered both faces - between rooms for residential purposes (6.4)",
             CoarseScaleFillColour = ColourRgb.FromHex("A9A294"), WrapAtEnds = WallWrapping.Exterior
         };
+        // A masonry house's spine wall (round 147): the internal wall of dense block its first floor's joists bear on, plastered both faces -
+        // 248 kg/m², Rw 45 or so, past the 40 Approved Document E asks round a bedroom or a room with a WC.
+        var blockPartition = new WallType("Block Wall - Dense 100mm", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Finish2, plaster.Id, 13),
+            new MaterialLayer(LayerFunction.Structure, denseBlock.Id, 100),
+            new MaterialLayer(LayerFunction.Finish2, plaster.Id, 13)))
+        {
+            Function = WallFunction.Interior, TypeMark = "P3", AssemblyCode = "C1010", FireRating = "60 min", AcousticRating = 45, Cost = 58m,
+            Description = "A loadbearing internal wall of dense concrete block, plastered both faces: a masonry house's spine wall, its floor joists bearing on it",
+            CoarseScaleFillColour = ColourRgb.FromHex("A9A294"), WrapAtEnds = WallWrapping.Exterior
+        };
         // A firefighting shaft's enclosure (Approved Document B Volume 2 Diagram 17.1, round 116): reinforced concrete 200 plastered, REI 120.
         var shaftWall = new WallType("Firefighting Shaft - Reinforced Concrete 200mm", new CompoundStructure(
             new MaterialLayer(LayerFunction.Finish2, plaster.Id, 13),
@@ -3099,6 +3127,17 @@ public sealed class BimDocument
         {
             Function = WallFunction.Interior, Separating = true, TypeMark = "USW1", AssemblyCode = "C1010", FireRating = "1 hr", AcousticRating = 45, Cost = 85m,
             Description = "IRC R302.3: a wall between the units of a two-family dwelling rated 1 hour - or one of a townhouse's double walls (R302.2.1), or its common wall where sprinklered (R302.2.2)",
+            CoarseScaleFillColour = ColourRgb.FromHex("E1DCCF"), WrapAtEnds = WallWrapping.Exterior
+        };
+        // An apartment building's demising and corridor wall (round 144): a 2x6 plate with 2x4 studs staggered on it, mineral wool woven
+        // between, 5/8 in Type X each side - 1 hour (IBC 708.3) and STC 51 (1206.2).
+        var demisingWall = new WallType("Demising Wall - Staggered Studs, 5/8 in Type X Each Side, 1 hr, STC 51", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Finish1, typeX.Id, 15.9),
+            new MaterialLayer(LayerFunction.Structure, mineralWool.Id, 140),
+            new MaterialLayer(LayerFunction.Finish2, typeX.Id, 15.9)))
+        {
+            Function = WallFunction.Interior, Separating = true, TypeMark = "USW2", AssemblyCode = "C1010", FireRating = "1 hr", AcousticRating = 51, Cost = 105m,
+            Description = "IBC 420.2, 708.3, 1206.2: a wall between apartments, or between one and the corridor - 1 hour, STC 51",
             CoarseScaleFillColour = ColourRgb.FromHex("E1DCCF"), WrapAtEnds = WallWrapping.Exterior
         };
         var unitSeparationFloor = new FloorType("Floor - 2x10 Joists, 5/8 in Type X Ceiling, 1 hr", new CompoundStructure(
@@ -3199,6 +3238,34 @@ public sealed class BimDocument
         var shutteredDoubleHung = usDoubleHung.Duplicate("Double Hung - 36 x 60 in, Louvred Shutters");
         (shutteredDoubleHung.TypeMark, shutteredDoubleHung.Shutters, shutteredDoubleHung.ShutterFinish, shutteredDoubleHung.Cost) = ("W19", WindowShutters.Louvred, "Painted Black", 760m);
 
+        // A barn's or a cottage's solid rubble stone wall, half a metre thick and plastered, as a conversion keeps it (round 145): about 2.3
+        // W/m²K - and the same lined inside with 100 of rigid insulation behind plasterboard, about 0.19, past Approved Document L's 0.30 for a
+        // retained wall upgraded (Table 4.3).
+        var rubble = new Material("Stone, Rubble Sandstone")
+        {
+            Density = 2200, ThermalConductivity = 2.3,
+            SurfaceColour = ColourRgb.FromHex("A89A84"), CutColour = ColourRgb.FromHex("988A74"), CostPerCubicMetre = 420m
+        };
+        document.AddMaterial(rubble);
+        var stoneWall = new WallType("Stone Wall - Rubble 500mm", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Structure, rubble.Id, 500),
+            new MaterialLayer(LayerFunction.Finish2, plaster.Id, 20)))
+        {
+            Function = WallFunction.Exterior, TypeMark = "EW8", AssemblyCode = "B2010", FireRating = "120 min", AcousticRating = 55, Cost = 0m,
+            Description = "A solid rubble stone wall, plastered inside: a barn's or a cottage's, kept in a conversion",
+            CoarseScaleFillColour = ColourRgb.FromHex("A89A84"), WrapAtEnds = WallWrapping.Exterior
+        };
+        var linedStoneWall = new WallType("Stone Wall - Rubble 500mm, Insulated Lining", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Structure, rubble.Id, 500),
+            new MaterialLayer(LayerFunction.ThermalAir, cavity.Id, 25, wraps: false),
+            new MaterialLayer(LayerFunction.ThermalAir, insulation.Id, 100, wraps: false),
+            new MaterialLayer(LayerFunction.Finish2, plasterboard.Id, 12.5)))
+        {
+            Function = WallFunction.Exterior, TypeMark = "EW9", AssemblyCode = "B2010", FireRating = "120 min", AcousticRating = 55, Cost = 95m,
+            Description = "The rubble stone wall lined inside with 100 of rigid insulation behind plasterboard: a retained wall upgraded (Approved Document L Table 4.3)",
+            CoarseScaleFillColour = ColourRgb.FromHex("A89A84"), WrapAtEnds = WallWrapping.Exterior
+        };
+
         // Slab edges: a thickened edge to a ground-bearing slab, an edge beam, a kerb along a floor's edge.
         var thickenedEdge = new SlabEdgeType("Slab Edge - Thickened 450 x 450")
             { Shape = SlabEdgeShape.Thickened, Width = 450, Depth = 450, FootWidth = 250, MaterialId = concrete.Id, TypeMark = "SE1", Cost = 85m };
@@ -3230,12 +3297,12 @@ public sealed class BimDocument
                      singleDoor, doubleDoor, twinSlider, singleSlider, frenchDoor, glazedDoor, bifold, entrance,
                      curtainSingle, curtainDouble, curtainSlider, frontDoor, fireDoor, wideDoor, liftDoor, panicDoor, autoEntrance, visionDoor, fd60, garageDoor, usExterior, usInterior30, usInterior32, usGarageEntry,
                      casement, picture, casementDouble, georgian, awning, hopper, slidingWindow,
-                     tiltAndTurn, doubleHung, louvred, bay, rooflight, threeLight, fanlights, fixedFanlight, twinDoubleHung, usDoubleHung, usCasement,
+                     tiltAndTurn, doubleHung, louvred, bay, rooflight, threeLight, fanlights, fixedFanlight, twinDoubleHung, usDoubleHung, usCasement, usEgressCasement,
                      screedFloor, timberFloor, plasterboardCeiling, flatRoof, pitchedRoof,
                      logRound, logD, logSquare, acousticPartition, timberFrame, sidedFrame, warmRoof, loftCeiling, plainTileRoof, interlockingRoof, slopedGlazing,
                      thickenedEdge, edgeBeam, kerb, partyWall, soffitCeiling, densePartyWall, separatingFloor, acousticCeiling, solidSeparating, doubleBoardCeiling, shaftWall,
                      areaSeparationWall, unitSeparationWall, unitSeparationFloor, shingleRoof, frtShingleRoof, battenWall, shingleWall, stuccoWall,
-                     halfTimberedWall, barrelRoof, shutteredDoubleHung
+                     halfTimberedWall, barrelRoof, shutteredDoubleHung, demisingWall, stoneWall, linedStoneWall, blockPartition
                  })
         {
             document.AddType(type);

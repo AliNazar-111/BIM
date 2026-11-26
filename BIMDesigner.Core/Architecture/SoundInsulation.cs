@@ -624,11 +624,16 @@ public static class SoundInsulation
 
         // A Robust Detail stands in for testing in a new house or a block of flats only (Regulation 41, Annex E) - a hotel's walls are tested.
         if (!lodging && type.RobustDetail.Trim().Length > 0) yield break;
+
+        // Retained in a conversion into homes, lined with wall treatment 1: Section 4's way to 43 dB (4.22 to 4.24, round 145).
+        if (!lodging && Conversion.Retained(document, wall) && Conversion.TreatmentOne(document, type)) yield break;
         var floors = SeparatingFloorAt(document, wall, type);
         var built = Wall(document, type, floors, Staggered(document, wall, type), lodging);
         var otherwise = lodging
             ? $"or show by pre-completion testing that it reaches DnT,w + Ctr {LodgingWall:0} dB (Table 0.1b, Section 1){(type.RobustDetail.Trim().Length > 0 ? " - a Robust Detail stands for that in a new house or flat only (Regulation 41, Annex E)" : string.Empty)}"
-            : "name the Robust Detail it is built to in Edit Type, or show by pre-completion testing that it reaches DnT,w + Ctr 45 dB (Table 0.1a, Section 1)";
+            : Conversion.Applies(document)
+                ? "or, formed by a material change of use, line it with wall treatment 1 - independent panels of two layers of plasterboard, 20 kg/m², over 35 of mineral wool (Section 4, 4.22 to 4.24) - or show by pre-completion testing that it reaches DnT,w + Ctr 43 dB (Table 0.1a)"
+                : "name the Robust Detail it is built to in Edit Type, or show by pre-completion testing that it reaches DnT,w + Ctr 45 dB (Table 0.1a, Section 1)";
         if (built.Group == 0)
         {
             yield return ($"it separates {between}: {built.What}.", lodging
@@ -680,6 +685,9 @@ public static class SoundInsulation
         var floors = document.All<Floor>().Where(floor => floor.LevelId == next && floor.Contains(middle)).Select(floor => floor.GetBottomElevation(document)).Where(bottom => bottom > top - 1).ToList();
         var roofs = document.All<Roof>().Where(roof => !roof.IsExtrusion && roof.Contains(middle)).Select(roof => roof.UndersideAt(document, middle)).Where(underside => underside > top - 1).ToList();
         var (over, what) = floors.Count > 0 ? (floors.Min(), "floor") : roofs.Count > 0 ? (roofs.Min(), "roof") : (double.NaN, string.Empty);
+
+        // Attached to the roof over it, it follows its underside up (round 147).
+        if (what == "roof" && wall.AttachedRoof(document) is { IsExtrusion: false } attached && attached.Contains(middle)) return null;
         if (double.IsNaN(over) || over - top <= 50 || !lodging && (what == "floor" || type.Separating)) return null;
         var gap = over - top;
         var paragraph = built.Group switch { 1 => "2.55, 2.56", 2 => "2.91, 2.92", 3 => "2.133, 2.134", _ => "2.160, 2.161" };

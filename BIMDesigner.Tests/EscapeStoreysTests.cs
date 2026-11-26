@@ -311,8 +311,9 @@ public class EscapeStoreysTests
         Assert.Equal(gallery, far.Room);
         Assert.StartsWith("it is a gallery over the Living Room, with no alternative exit or escape window - Approved Document B (2.15, Diagram 2.6) then asks the foot of its stair within 3 m of the way out of the Living Room - it is ", far.Said);
 
-        // 5 m deep: 30 m² over the room below's 7.67 by 5.67 m, 43.5 m², inside its walls - 69 %, past half.
+        // 5 m deep: inside the walls standing up through the first floor from the living room - its brick 330 thick - and the separator,
+        // 4.835 by 5.67 m, 27.4 m², over the room below's 7.67 by 5.67 m, 43.5 m²: 63 %, past half (round 143).
         (document, _) = Gallery(5000, 4000);
-        Assert.Contains("half the Living Room at least left open to view from it - it covers 69% of it", Assert.Single(Escape.Problems(document)).Said);
+        Assert.Contains("half the Living Room at least left open to view from it - it covers 63% of it", Assert.Single(Escape.Problems(document)).Said);
     }
 }

@@ -269,6 +269,18 @@ public sealed partial class PlanRenderer
             ? Enumerable.Empty<T>()
             : Document.All<T>().Where(element => element is Grid || (element.LevelId == ActiveLevelId && Filter(element)));
 
+    /// <summary>The walls from levels below standing up through this plan's level, as its own are shown (round 143).</summary>
+    private IEnumerable<Wall> StandingThrough() =>
+        Document is null || ActiveLevelId == Guid.Empty ? Enumerable.Empty<Wall>() : SplitLevels.StandingThrough(Document, ActiveLevelId).Where(wall => Filter(wall));
+
+    /// <summary>Where this plan cuts a wall, over its base: its own storey's cut height, or for one standing up through this plan's level, this level's.</summary>
+    private double CutHeightOf(Wall wall)
+    {
+        var height = wall.GetHeight(Document!);
+        if (wall.LevelId == ActiveLevelId || Document!.FindLevel(ActiveLevelId) is not { } level) return Math.Min(StackedWallType.PlanCutHeight, height);
+        return Math.Clamp(level.Elevation + StackedWallType.PlanCutHeight - wall.GetBaseElevation(Document), 0, height);
+    }
+
     /// <summary>The view's filters: what it leaves out. Everything is shown unless set.</summary>
     public Func<Element, bool> Filter { get; set; } = _ => true;
 
@@ -354,6 +366,9 @@ public sealed partial class PlanRenderer
         if (!underlay) DrawLinks(dc);
 
         foreach (var wall in OnActiveLevel<Wall>()) Styled(dc, wall, d => DrawWall(d, wall));
+
+        // Walls from a level below standing up through this one, cut where this plan cuts - a split-level house's (round 143).
+        foreach (var wall in StandingThrough()) Styled(dc, wall, d => DrawWall(d, wall));
         foreach (var opening in OnActiveLevel<Opening>()) Styled(dc, opening, d => DrawOpening(d, opening));
 
         // A column is construction like a wall, and is drawn over it where it is built into one.
@@ -613,7 +628,7 @@ public sealed partial class PlanRenderer
 
         // A slanted or tapered wall is drawn where the plan cuts it, which is not where it
         // stands: every point of it moves across by how far it leans at the cut height.
-        var cutHeight = Math.Min(StackedWallType.PlanCutHeight, wall.GetHeight(Document));
+        var cutHeight = CutHeightOf(wall);
         _lean = WallLean.Leans(wall, type)
             ? point => WallLean.Move(wall, type, point, cutHeight)
             : point => point;

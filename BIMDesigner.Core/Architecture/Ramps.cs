@@ -880,8 +880,10 @@ public static class Ramps
         if (Irc(document, ramp)) return Limited(new RampRules(double.PositiveInfinity, 915, 915, 0));
         if (Us(document)) return Limited(new RampRules(IsRamp(ramp) ? 760 * x : double.PositiveInfinity, 1525, 1525, 0));
 
+        // A visitable dwelling's ramp (round 148): 10 m a flight up to 1:15, 5 m up to 1:12 (M4(1) 1.7a) - two bands, not pro rata.
+        var visitable = BuildingOf(document, ramp) == RailingBuilding.Dwelling && document.ProjectInformation.ClearanceStandard == ClearanceStandard.ApprovedDocumentM1;
         var going = IsRamp(ramp)
-            ? (Math.Clamp(x, 12, 20) - 10) * 1000
+            ? visitable ? (x >= 15 - 1e-9 ? 10000 : 5000) : (Math.Clamp(x, 12, 20) - 10) * 1000
             : BuildingOf(document, ramp) == RailingBuilding.Other ? 500 * x : double.PositiveInfinity;
         if (BuildingOf(document, ramp) == RailingBuilding.Dwelling) return Limited(new RampRules(going, Math.Max(1200, width), Math.Max(1200, width), 0));
         var passing = flights >= 3 || Turns(ramp);
@@ -902,6 +904,7 @@ public static class Ramps
         : Us(document) ? (915, $"the ADA asks for 36 in{Units.MetricAside("915")} clear between its handrails")
         : BuildingOf(document, ramp) == RailingBuilding.Other ? (1500, "Approved Document M asks for 1.5 m between its kerbs")
         : document.ProjectInformation.ClearanceStandard == ClearanceStandard.ApprovedDocumentM3 ? (1200, "Approved Document M asks a wheelchair user's ramp for 1200 clear (M4(3) 3.10c)")
+        : document.ProjectInformation.ClearanceStandard == ClearanceStandard.ApprovedDocumentM1 ? (900, "Approved Document M asks every flight for 900 clear (M4(1) 1.7b)")
         : (900, "Approved Document M asks a dwelling's ramp for 900 clear - 1200 on a communal approach");
 
     /// <summary>The headroom it must have over its surface, and why: 2 m, Approved Document K; 80 in (2030) under the ADA and the IRC.</summary>

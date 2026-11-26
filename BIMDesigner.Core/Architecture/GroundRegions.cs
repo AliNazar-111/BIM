@@ -220,7 +220,7 @@ public static class GroundRegions
             problems.Add(us
                 ? "It is laid in gravel: the ADA asks an accessible route for a firm, stable surface (302.1) - loose gravel is not."
                 : Domestic.Rules(document)
-                    ? "It is laid in gravel: Approved Document M asks an approach for a suitable ground surface (2.9e) - firm and even, which loose gravel is not."
+                    ? $"It is laid in gravel: Approved Document M asks an approach for a suitable ground surface ({(document.ProjectInformation.ClearanceStandard == ClearanceStandard.ApprovedDocumentM1 ? "M4(1) 1.6b" : "2.9e")}) - firm and even, which loose gravel is not."
                     : "It is laid in gravel: Approved Document M Volume 2 (1.13d) asks an approach's surface firm, durable and slip resistant - loose sand or gravel is not.");
         if (!region.Approach || region.Surface is not (GroundSurface.Path or GroundSurface.Paving)) return problems;
         problems.AddRange(Approaches.PathProblems(document, region));
@@ -250,6 +250,15 @@ public static class GroundRegions
             problems.Add(steepest > 1 / 15.0 + 1e-6
                 ? $"It falls {said} at its steepest: Approved Document M allows a wheelchair user's approach no steeper than 1:15 (M4(3) 3.10a) - a ramp built over it, or a gentler way."
                 : $"It falls {said} at its steepest: Approved Document M takes it as a ramp (M4(3) 3.10, Diagram 3.1) - its flights 5 m long at 1:15 and 10 m at 1:20 at most, 1200 wide, with level landings.");
+            return problems;
+        }
+
+        // A visitable dwelling's (round 148): ramped up to 1:15 for 10 m a flight, 1:12 for 5 m (M4(1) 1.7a); steps only on a steeply sloping plot (1.4, 1.8).
+        if (document.ProjectInformation.ClearanceStandard == ClearanceStandard.ApprovedDocumentM1)
+        {
+            problems.Add(steepest > 1 / 12.0 + 1e-6
+                ? $"It falls {said} at its steepest: Approved Document M allows a ramped approach no steeper than 1:12 (M4(1) 1.4, 1.7a) - a ramp built over it, or, on a plot steeper than 1:15, steps meeting 1.8."
+                : $"It falls {said} at its steepest: Approved Document M takes it as a ramp (M4(1) 1.7) - its flights 10 m long up to 1:15 and 5 m up to 1:12 at most, 900 wide, with landings 1200 long.");
             return problems;
         }
 

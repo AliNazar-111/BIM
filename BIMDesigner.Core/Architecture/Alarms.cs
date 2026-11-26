@@ -327,17 +327,28 @@ public static class Alarms
         double NearestSmoke(Point2D at) => smoke.Count == 0 ? double.MaxValue : smoke.Min(alarm => alarm.DistanceTo(at));
 
         var wanting = new List<string>();
-        if (smoke.Count == 0)
+
+        // In an apartment building, the IBC's 907.2.11.2, which asks the same - each story within a dwelling unit its own, its rooms' alarms (round 144).
+        var code = Apartments.Applies(document) ? "IBC 907.2.11.2" : "IRC R314.3";
+        if (Apartments.Applies(document) && Dwellings.Of(room).Length > 0)
+            smoke = smoke.Where(alarm => RoomsOf.Containing(document, room.LevelId, alarm) is { } holding && Dwellings.Same(holding, room)).ToList();
+
+        // In the US, on a split level with no door between it and the level half a storey up, that level's alarm does for it (IRC R314.3 item 3, round 143).
+        var coveredFromAbove = us && smoke.Count == 0 && SplitLevels.CoveredFrom(document, room.LevelId) is { } over
+                               && All(document, over.Id, type => type.Form == ComponentForm.SmokeAlarm).Count > 0;
+        // An apartment building's common parts - corridors, stairs - ask no smoke alarm of their own: its fire alarm is 907.2.9's.
+        var commonParts = Apartments.Applies(document) && Dwellings.Of(room).Length == 0;
+        if (smoke.Count == 0 && !coveredFromAbove && !commonParts)
             wanting.Add(us
-                ? "no smoke alarm on this storey - IRC R314.3 asks for one on every storey"
+                ? $"no smoke alarm on this storey - {code} asks for one on every storey{(code.StartsWith("IBC", StringComparison.Ordinal) ? " within a dwelling unit" : string.Empty)}"
                 : "no smoke alarm on this storey - BS 5839-6, which Approved Document B (1.1) follows, asks for one on every storey");
         else if (us)
         {
-            if (bedroom && !Has(ComponentForm.SmokeAlarm)) wanting.Add("no smoke alarm in this bedroom - IRC R314.3 asks for one in every bedroom");
+            if (bedroom && !Has(ComponentForm.SmokeAlarm)) wanting.Add($"no smoke alarm in this bedroom - {code} asks for one in every bedroom");
 
             var outside = smoke.Where(alarm => !Polygon2D.Contains(boundary.Polygon, alarm)).ToList();
             if (bedroom && doors.Count > 0 && doors.Min(door => outside.Count == 0 ? double.MaxValue : outside.Min(alarm => alarm.DistanceTo(door))) > 3000 + 0.5)
-                wanting.Add("no smoke alarm by its door outside it - IRC R314.3 asks for one outside every sleeping area, by the bedrooms");
+                wanting.Add($"no smoke alarm by its door outside it - {code} asks for one outside every sleeping area, by the bedrooms");
         }
         else if (!wet && !kitchen && doors.Count > 0)
         {

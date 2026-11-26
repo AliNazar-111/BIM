@@ -48,7 +48,7 @@ public static partial class Escape
     /// <summary>A room's means of escape as its Properties say it.</summary>
     public static string Describe(BimDocument document, Room room)
     {
-        if (document.ProjectInformation.ClearanceStandard.IsUs()) return "Not checked under the US's codes";
+        if (document.ProjectInformation.ClearanceStandard.IsUs()) return Apartments.Applies(document) ? Apartments.Describe(document, room) : "Not checked under the US's codes";
 
         // A storey walked once for all that is said here, not again for each rule that asks it - while nothing changes (round 116).
         using var kept = ModelCache.Begin(document);

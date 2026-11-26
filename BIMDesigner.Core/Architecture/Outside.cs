@@ -92,6 +92,9 @@ public static class Outside
                     break;
                 }
 
+                // A visitable dwelling's: M4(1) asks nothing of a parking bay - the approach from it only (1.2, round 148).
+                if (standard == ClearanceStandard.ApprovedDocumentM1) break;
+
                 // Its size.
                 var (wide, deep, sizeRule) = (accessible, us) switch
                 {

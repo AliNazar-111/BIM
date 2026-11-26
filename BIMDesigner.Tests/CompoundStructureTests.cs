@@ -140,8 +140,9 @@ public class CompoundStructureTests
         var types = document.TypesOf<WallType>().ToList();
 
         // Seventeen: the US's 2-hour area separation wall and 1-hour unit separation wall among them (round 140), its board and batten,
-        // cedar shingle and stucco walls (round 141), and a half-timbered one (round 142).
-        Assert.Equal(17, types.Count(type => type.Log is null));
+        // cedar shingle and stucco walls (round 141), a half-timbered one (round 142), an apartment's demising wall (round 144), and a
+        // rubble stone wall bare and lined (round 145), and a masonry house's dense block spine wall (round 147).
+        Assert.Equal(21, types.Count(type => type.Log is null));
         Assert.Equal(3, types.Count(type => type.Log is not null));
         Assert.All(types, type => Assert.True(type.Width > 0));
         Assert.All(types, type => Assert.NotEmpty(type.Structure.Layers));

@@ -35,6 +35,12 @@ public sealed record NewProjectSpec
 
     public string BuildingType { get; init; } = string.Empty;
 
+    /// <summary>
+    /// For England's house: no planning condition asks M4(2) of it, so it is checked as a visitable dwelling, M4(1) - all a new dwelling need
+    /// meet where no condition is imposed (Approved Document M Volume 1, 0.3; round 148).
+    /// </summary>
+    public bool Visitable { get; init; }
+
     /// <summary>In England, the nearest of CIBSE Guide A's stations, and how high the site is over the sea, m.</summary>
     public HeatingLocation HeatingLocation { get; init; } = HeatingLocation.London;
 
@@ -107,7 +113,8 @@ public static class ProjectTemplates
         "Townhouse Area Separation Wall - 2 hr Gypsum Liner Panels", "Unit Separation Wall - 2x4 Studs, 5/8 in Type X Each Side, 1 hr", "Floor - 2x10 Joists, 5/8 in Type X Ceiling, 1 hr",
         "Roof - Asphalt Shingles on Plywood, 2x8 Rafters", "Roof - Asphalt Shingles on FRT Plywood, 2x8 Rafters",
         "Wood Frame 2x6 - Board and Batten", "Wood Frame 2x6 - Cedar Shingles", "Wood Frame 2x6 - Stucco",
-        "Double Hung - 36 x 60 in, Louvred Shutters"
+        "Double Hung - 36 x 60 in, Louvred Shutters", "Stair - Wood, 7 3/4 in Rise, 10 in Tread", "Casement - 30 x 48 in, Egress",
+        "Stair - Concrete Pan, 7 in Rise, 11 in Tread", "Demising Wall - Staggered Studs, 5/8 in Type X Each Side, 1 hr, STC 51"
     };
 
     private static readonly HashSet<string> EnglishTypes = new(StringComparer.Ordinal)
@@ -156,7 +163,7 @@ public static class ProjectTemplates
         info.Client = spec.Client.Trim();
         info.Address = spec.Address.Trim();
         info.BuildingType = spec.BuildingType.Trim();
-        info.ClearanceStandard = StandardOf(spec.Template);
+        info.ClearanceStandard = spec.Template == ProjectTemplate.EnglandHouse && spec.Visitable ? ClearanceStandard.ApprovedDocumentM1 : StandardOf(spec.Template);
         info.Units = spec.Template == ProjectTemplate.UsHouse ? UnitSystem.Imperial : UnitSystem.Metric;
         info.Ground = spec.Ground;
         info.SiteAltitude = Math.Max(0, spec.SiteAltitude);

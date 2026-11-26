@@ -365,6 +365,19 @@ public static class HorizontalEscape
         return ModelCache.Of(document) is { } cache ? cache.Keep("horizontal escape", document, null, null, Work) : Work();
     }
 
+    /// <summary>
+    /// A storey walked for another code's rules (round 146, a US apartment building's): every enclosed room on it - stairs and lift shafts not
+    /// walked - its storey exits the doors into the rooms the given test calls stairs, and the doors outside onto the ground.
+    /// </summary>
+    internal static Storey WalkLevel(BimDocument document, Guid level, Func<Room, bool> stair)
+    {
+        var outlines = document.All<Room>().Where(room => room.LevelId == level).Select(room => (Room: room, Boundary: room.GetBoundary(document)))
+            .Where(entry => entry.Boundary.IsEnclosed && entry.Boundary.Polygon.Count >= 3).ToDictionary(entry => entry.Room, entry => (IReadOnlyList<Point2D>)entry.Boundary.Polygon);
+        var cars = Lifts.Of(document).Select(lift => lift.Car).ToList();
+        bool Shaft(Room room) => Named(room, "lift", "shaft", "elevator") || cars.Any(car => Polygon2D.Contains(car, room.Location));
+        return Walk(document, outlines, Escape.Links(document, outlines.Keys.ToHashSet()), stair, Shaft, PurposeGroup.ResidentialOther, level);
+    }
+
     /// <summary>Whether a straight line between two points stays inside an outline.</summary>
     private static bool Clear(IReadOnlyList<Point2D> outline, Point2D a, Point2D b)
     {

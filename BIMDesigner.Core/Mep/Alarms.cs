@@ -51,12 +51,15 @@ public static class AlarmSiting
 
             var bedrooms = storey.Where(entry => Bedroom(entry.Room, entry.Boundary.Polygon)).ToList();
             foreach (var (room, _) in bedrooms.Where(entry => !Has(entry.Room, smoke)))
-                yield return new MepProblem(room, "no smoke alarm - IRC R314.3 puts a smoke alarm in each sleeping room");
+                yield return new MepProblem(room, $"no smoke alarm - {(Apartments.Applies(document) ? "IBC 907.2.11.2" : "IRC R314.3")} puts a smoke alarm in each sleeping room");
             if (bedrooms.Count > 0)
                 foreach (var (room, _) in halls.Where(entry => !Has(entry.Room, smoke)))
-                    yield return new MepProblem(room, "no smoke alarm - IRC R314.3 puts one outside each sleeping area, in the vicinity of the bedrooms");
-            if (!storey.Any(entry => Has(entry.Room, smoke)))
-                yield return new MepProblem(storey.First().Room, $"no smoke alarm on {level} - IRC R314.3 puts one on each storey");
+                    yield return new MepProblem(room, $"no smoke alarm - {(Apartments.Applies(document) ? "IBC 907.2.11.2" : "IRC R314.3")} puts one outside each sleeping area, in the vicinity of the bedrooms");
+            // A split level with no door between it and the level half a storey up: that level's alarm does for it (R314.3 item 3, round 143).
+            var coveredFromAbove = SplitLevels.CoveredFrom(document, storey.Key) is { } over
+                                   && smoke.Any(alarm => alarm.LevelId == over.Id);
+            if (!storey.Any(entry => Has(entry.Room, smoke)) && !coveredFromAbove)
+                yield return new MepProblem(storey.First().Room, $"no smoke alarm on {level} - IRC R314.3 puts one on each storey, a split level's upper level's alarm doing for the level half a storey below it with no door between");
 
             // Carbon monoxide: with a fuel-burning appliance or an attached garage.
             var fuel = document.All<Component>().Any(component => MepSystems.ConnectorsOf(document, component).Any(connector => connector.Kind == SystemKind.Gas && !connector.Feeds))
