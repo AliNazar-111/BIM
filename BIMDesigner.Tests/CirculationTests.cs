@@ -195,9 +195,12 @@ public class CirculationTests
         Assert.Contains("a passing place in it", said);
         Assert.DoesNotContain("(3.14c)", said);
 
-        // A dwelling's hall: not asked.
+        // A dwelling's hall: not Volume 2's corridor - M4(2)'s hall, its narrowest width, 900 asked and met (round 158).
         document.ProjectInformation.BuildingType = "House";
-        Assert.Null(Circulation.Verdict(document, office.Corridor));
+        var home = Circulation.Verdict(document, office.Corridor)!;
+        Assert.StartsWith("Hall: ", home);
+        Assert.DoesNotContain("Volume 2", home);
+        Assert.DoesNotContain("asks", home);
     }
 
     [Fact]

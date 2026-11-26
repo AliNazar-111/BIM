@@ -300,7 +300,9 @@ public static class Circulation
     public static string? Verdict(BimDocument document, Room room)
     {
         if (document.ProjectInformation.ClearanceStandard.IsUs()) return UsHallway(document, room);
-        if (!Applies(document)) return null;
+
+        // A home's hall: its narrowest between its doors, by M4(1) or M4(2) (round 158).
+        if (!Applies(document)) return Visitable.HallVerdict(document, room);
         var (outlines, doors) = Plan(document);
         if (!outlines.TryGetValue(room, out var outline)) return null;
         if (IsLobby(room)) return Lobby(document, room, outline, doors[room]);

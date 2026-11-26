@@ -130,8 +130,10 @@ public static class Doors
     /// <summary>
     /// How much wall there is beside a door's leading edge, on the side it opens to: along the
     /// face from its latch jamb to the wall that returns there; null where none returns within 1 m.
+    /// Its following edge's - its hinge jamb's, on the side it opens away from, as M4(3)'s Diagram
+    /// 3.4 draws it (round 159) - where asked.
     /// </summary>
-    public static double? Nib(BimDocument document, Door door, DoorType type)
+    public static double? Nib(BimDocument document, Door door, DoorType type, bool following = false)
     {
         if (document.Find<Wall>(door.HostWallId) is not { } host || document.GetWallType(host) is not { } hostType) return null;
 
@@ -142,13 +144,19 @@ public static class Doors
 
         var (from, to) = door.GetSpan(type);
         var (latch, away) = door.FlipHand ? (from, -1.0) : (to, 1.0);
-        var face = (door.FlipFacing ? -1 : 1) * (hostType.Structure.TotalWidth / 2 + 10);
+        if (following) (latch, away) = door.FlipHand ? (to, 1.0) : (from, -1.0);
+        var face = (door.FlipFacing ? -1 : 1) * (following ? -1 : 1) * (hostType.Structure.TotalWidth / 2 + 10);
         for (var reach = 0.0; reach <= 1000; reach += 5)
             if (others.Any(band => Polygon2D.Contains(band, host.PointAt(hostType.Structure, latch + away * reach, face))))
                 return reach;
 
         return null;
     }
+
+    /// <summary>Whether a door is a cupboard's - an airing, meter or store cupboard's, a riser's - which M4's halls and doors leave out (Note 1).</summary>
+    private static bool Cupboarded(BimDocument document, Door door) =>
+        new[] { RoomsBeside(document, door).Swing, RoomsBeside(document, door).Other }
+            .Any(room => room is not null && new[] { "cupboard", "airing", "meter", "riser", "store" }.Any(word => room.Name.Contains(word, StringComparison.OrdinalIgnoreCase)));
 
     /// <summary>What a door falls short of, as the project's standard asks: its width, its nib, its fire rating and closer, its glass, its U-value.</summary>
     public static IReadOnlyList<PlacementProblem> Problems(BimDocument document, Door door, ClearanceStandard standard)
@@ -180,9 +188,24 @@ public static class Doors
             case ClearanceStandard.ApprovedDocumentM when !external && clear < 750 - 0.5:
                 Add($"it gives {clear:0} clear.", "Approved Document M (M4(2) Table 2.1) asks for 750 clear through a door at the least - more off a narrow hall.");
                 break;
+
+            // Off a hall or landing, as Table 2.1 asks by its width there and how the door is approached; the hall 900 at least (2.22a, c, round
+            // 157) - a cupboard's door left out, as Note 1 has it.
+            case ClearanceStandard.ApprovedDocumentM when !external && Domestic.Rules(document, door) && !Cupboarded(document, door)
+                && Visitable.HallProblem(document, door, type,
+                    "Approved Document M (M4(2) 2.22a, c, Table 2.1) asks for a hall or landing 900 clear at least, and a door off it 750 clear approached head on; approached from the side, 750 off a hall 1200 wide, 775 off 1050, 800 off 900 - a radiator or fitting not opposite it (2.22b).") is var (narrowSaid, narrowRule):
+                Add(narrowSaid, narrowRule);
+                break;
             case ClearanceStandard.ApprovedDocumentM3 when clear < 850 - 0.5:
                 Add($"it gives {clear:0} clear{(pair ? " through its main leaf" : string.Empty)}.",
                     "Approved Document M (M4(3) 3.22, 3.24) asks for 850 clear through every door, for a wheelchair user.");
+                break;
+
+            // Off a hall: approached from the side, the hall 1200 there; head on, 1050 (3.24a, b, round 159) - a cupboard's door left out (Note 1).
+            case ClearanceStandard.ApprovedDocumentM3 when !external && Domestic.Rules(document, door) && !Cupboarded(document, door)
+                && Visitable.HallAt(document, door) is var (wheelHall, wheelHeadOn, wheelWidth) && wheelWidth < (wheelHeadOn ? 1050 : 1200) - 0.5:
+                Add($"the {wheelHall.Name.ToLowerInvariant()} in front of it is {wheelWidth:0} clear, {(wheelHeadOn ? "approached head on" : "approached from the side")}.",
+                    "Approved Document M (M4(3) 3.24a, b) asks for every hallway, approach and landing 1050 clear, and 1200 where a door off it is approached from the side.");
                 break;
             case ClearanceStandard.Ada when clear < 815 - 0.5:
                 Add($"it gives {Units.Bare(clear)} clear.", $"ADA 404.2.3 asks for 32 in{Units.MetricAside("815")} clear through a door.");
@@ -212,6 +235,11 @@ public static class Doors
                 standard == ClearanceStandard.ApprovedDocumentM3
                     ? "Approved Document M (M4(3) 3.22, 3.24) asks for a 300 nib beside every door's leading edge, on the side it opens to."
                     : "Approved Document M (M4(2) 2.20f, 2.22) asks for a 300 nib beside the leading edge of an external door, and of every door on the entrance storey, on the side it opens to.");
+
+        // And M4(3)'s 200 beside every door's following edge (3.24g, round 159).
+        if (homes && standard == ClearanceStandard.ApprovedDocumentM3 && swings && !pair && Nib(document, door, type, following: true) is { } tail && tail < 200 - 0.5)
+            Add($"its following edge is {tail:0} from the wall beside it.",
+                "Approved Document M (M4(3) 3.24g) asks for a 200 nib beside every door's following edge - its hinge side, on the side it opens away from.");
 
         // In a building other than a dwelling: Table 2's widths, the space beside its leading edge, and not standing into a corridor (round 106).
         foreach (var (said, rule) in Circulation.Problems(document, door, type)) Add(said, rule);
