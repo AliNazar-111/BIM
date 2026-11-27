@@ -2926,6 +2926,9 @@ public sealed class BimDocument
                 { TypeMark = "G2", Colour = new ColourRgb(0xB8, 0xE0, 0xC0), Cost = 0m },
             new ComponentType("Turning Circle - 60 in", BuiltInCategory.GenericModels, ComponentForm.TurningCircle, 1525, 1525, 10)
                 { TypeMark = "G3", Colour = new ColourRgb(0xB8, 0xE0, 0xC0), Cost = 0m },
+            // A wheelchair user's storage and transfer space, 1700 x 1100, its back to a wall (Approved Document M Volume 1 3.25, round 160).
+            new ComponentType("Wheelchair Storage and Transfer Space - 1700 x 1100", BuiltInCategory.GenericModels, ComponentForm.WheelchairStorage, 1700, 1100, 10)
+                { TypeMark = "G4", Colour = new ColourRgb(0xB8, 0xD4, 0xEC), Cost = 0m },
 
             new ComponentType("Generic - 600 Cube", BuiltInCategory.GenericModels, ComponentForm.Box, 600, 600, 600)
                 { TypeMark = "G1", Cost = 0m }

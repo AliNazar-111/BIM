@@ -1062,6 +1062,11 @@ public static class ComponentModel
                 Add(-halfW, halfW, -halfD, halfD, 0, h, PartFinish.Body, PartShape.Upright);
                 break;
 
+            case ComponentForm.WheelchairStorage:
+                // The space marked on the floor (Approved Document M Volume 1 3.25, round 160).
+                Add(-halfW, halfW, -halfD, halfD, 0, h);
+                break;
+
             case ComponentForm.Boiler:
             {
                 // Its white case, the controls along the bottom of its front, and its flue out of the top.
@@ -2033,6 +2038,18 @@ public static class ComponentModel
             case ComponentForm.TurningCircle:
                 shapes.Add(frame.Line(-halfW, 0, halfW, 0));
                 shapes.Add(frame.Line(0, -halfD, 0, halfD));
+                break;
+
+            case ComponentForm.WheelchairStorage:
+                // Two wheelchairs side by side, as Diagram 3.6 draws them: each its wheels either side and its seat between, its back to the wall.
+                shapes.Add(frame.Line(0, -halfD, 0, halfD));
+                foreach (var centre in new[] { -halfW / 2, halfW / 2 })
+                {
+                    Inside(centre - 330, centre - 290, -halfD + 120, -halfD + 120 + 610);
+                    Inside(centre + 290, centre + 330, -halfD + 120, -halfD + 120 + 610);
+                    Inside(centre - 250, centre + 250, -halfD + 200, halfD - 250);
+                }
+
                 break;
 
             case ComponentForm.CeilingLight:

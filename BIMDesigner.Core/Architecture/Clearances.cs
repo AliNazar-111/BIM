@@ -396,6 +396,13 @@ public static class Clearances
                 };
                 break;
 
+            case ComponentForm.WheelchairStorage when !standard.IsUs():
+                yield return new Zone("the wheelchair storage and transfer space", new[] { new Area(-halfW, halfW, -halfD, halfD) },
+                    "Approved Document M (M4(3) 3.25a, Diagram 3.6) asks for a wheelchair storage and transfer space 1700 wide and 1100 deep, clear.");
+                yield return new Zone("the space in front of the wheelchair storage", new[] { new Area(-halfW, halfW, halfD, halfD + 1200) },
+                    "Approved Document M (M4(3) 3.25b, Diagram 3.6) asks for the wheelchair storage and transfer space to open off a space 1200 clear across its width.");
+                break;
+
             case ComponentForm.TurningCircle:
                 yield return new Zone("the turning circle", new[] { new Area(-halfW, halfW, -halfD, halfD) },
                     standard.IsUs()

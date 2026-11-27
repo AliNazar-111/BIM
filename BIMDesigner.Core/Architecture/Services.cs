@@ -130,6 +130,16 @@ public static class Services
         var footprint = ComponentModel.Footprint(type, ComponentModel.FrameOf(piece, 0));
         var problems = new List<PlacementProblem>();
 
+        // A wheelchair user's storage and transfer space has a power socket in it, to charge a wheelchair by (Approved Document M 3.25c, round 160).
+        if (type.Form == ComponentForm.WheelchairStorage && !standard.IsUs())
+        {
+            var reach = footprint;
+            var charged = document.All<Component>().Any(other => other.LevelId == piece.LevelId && document.FindType<ComponentType>(other.TypeId)?.Form == ComponentForm.Socket
+                && (Polygon2D.Contains(reach, other.Location) || Enumerable.Range(0, reach.Count).Min(i => Line2D.DistanceFromSegment(other.Location, reach[i], reach[(i + 1) % reach.Count])) <= 150));
+            if (!charged)
+                problems.Add(new PlacementProblem(piece, "no power socket in it.", "Approved Document M (M4(3) 3.25c, Diagram 3.6) asks for a power socket within the wheelchair storage and transfer space, to charge a wheelchair.", footprint));
+        }
+
         if (Reach(document, type, standard) is var (least, most, corner, rule))
         {
             var middle = piece.Elevation + type.Height / 2;

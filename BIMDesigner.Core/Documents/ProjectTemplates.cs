@@ -120,6 +120,7 @@ public static class ProjectTemplates
 
     private static readonly HashSet<string> EnglishTypes = new(StringComparer.Ordinal)
     {
+        "Wheelchair Storage and Transfer Space - 1700 x 1100",
         "Consumer Unit - 12 Way", "Socket - Double", "Switch - One Gang", "Shaver Socket", "Hot Water Cylinder - Unvented 210 l", "Cooker - Gas 600", "Gas Fire - Inset 600",
         "Single - 900 x 2100", "Single - 1000 x 2100", "Front Door - 1000 x 2100", "Fire Door FD30S - 900 x 2100",
         "Double Hung - 900 x 1500", "Casement - 1200 x 1200",

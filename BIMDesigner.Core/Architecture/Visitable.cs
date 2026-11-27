@@ -158,6 +158,9 @@ public static class Visitable
     /// </summary>
     public static IReadOnlyList<(Element Element, string Said)> Problems(BimDocument document)
     {
+        // A wheelchair user dwelling: its storage and transfer space on the entrance storey (3.25a, round 160).
+        if (document.ProjectInformation.ClearanceStandard == ClearanceStandard.ApprovedDocumentM3)
+            return WheelchairStore(document) is { } wanting ? new[] { wanting } : Array.Empty<(Element, string)>();
         if (!Applies(document) || Entrance(document) is not { } entrance) return Array.Empty<(Element, string)>();
         var standard = document.ProjectInformation.ClearanceStandard;
         var storeys = WcStoreys(document, standard);
@@ -536,6 +539,18 @@ public static class Visitable
         if (Terrains.GroundAt(document, face) is not { } ground) return null;
         var floor = (document.FindLevel(wall.LevelId)?.Elevation ?? 0) + door.SillHeight;
         return floor - ground;
+    }
+
+    /// <summary>
+    /// A wheelchair user dwelling with no storage and transfer space on its entrance storey - the storey its principal private entrance is
+    /// on - said of that entrance (Approved Document M 3.25a): a house in England checked to M4(3), not an extension.
+    /// </summary>
+    private static (Element Element, string Said)? WheelchairStore(BimDocument document)
+    {
+        if (FireDesign.UseOf(document) != BuildingUse.House || !Domestic.Rules(document) || document.ProjectInformation.BuildingType.Contains("extension", StringComparison.OrdinalIgnoreCase)) return null;
+        if (Entrance(document) is not { } entrance || document.Find<Wall>(entrance.HostWallId) is not { } wall) return null;
+        if (document.All<Component>().Any(piece => piece.LevelId == wall.LevelId && document.FindType<ComponentType>(piece.TypeId)?.Form == ComponentForm.WheelchairStorage)) return null;
+        return (entrance, $"no wheelchair storage and transfer space on {document.FindLevel(wall.LevelId)?.Name ?? "the entrance storey"}: Approved Document M (M4(3) 3.25a, Diagram 3.6) asks for one 1700 wide and 1100 deep on the entrance storey, preferably close to the principal private entrance - put down the Wheelchair Storage and Transfer Space component, a power socket in it.");
     }
 
     /// <summary>A fact about the whole house, found once while the model is unchanged.</summary>

@@ -338,7 +338,13 @@ public enum ComponentForm
     /// An emergency door release - a green break-glass unit to BS 7273-4, Type A - beside a door held by an electrically powered lock, on the side
     /// people escaping come to it, overriding the lock (Approved Document B Volume 2 5.8).
     /// </summary>
-    DoorRelease
+    DoorRelease,
+
+    /// <summary>
+    /// A wheelchair user's storage and transfer space: room to charge and store two wheelchairs and change between an outdoor and an indoor
+    /// one, 1700 wide and 1100 deep, its back to a wall, a space 1200 clear in front of it (Approved Document M Volume 1 3.25, Diagram 3.6).
+    /// </summary>
+    WheelchairStorage
 }
 
 /// <summary>
@@ -430,7 +436,8 @@ public sealed class ComponentType : ElementType
             or ComponentForm.Wardrobe or ComponentForm.TelevisionUnit or ComponentForm.Shower
             or ComponentForm.Drawers or ComponentForm.CornerSofa or ComponentForm.BunkBed
             or ComponentForm.WallUnit or ComponentForm.TallUnit or ComponentForm.OvenHousing or ComponentForm.CookerHood or ComponentForm.TumbleDryer
-            or ComponentForm.WallHungToilet or ComponentForm.TowelRail or ComponentForm.Boiler or ComponentForm.HeatPump or ComponentForm.GasFire;
+            or ComponentForm.WallHungToilet or ComponentForm.TowelRail or ComponentForm.Boiler or ComponentForm.HeatPump or ComponentForm.GasFire
+            or ComponentForm.WheelchairStorage;
 
     /// <summary>
     /// Whether one put down near a wall backs onto it and faces the room: a bed, a wardrobe, a
