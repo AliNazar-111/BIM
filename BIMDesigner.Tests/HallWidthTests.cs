@@ -251,4 +251,87 @@ public class HallWidthTests
         document.ProjectInformation.ClearanceStandard = ClearanceStandard.ApprovedDocumentM;
         Assert.DoesNotContain(Doors.Problems(document, side, ClearanceStandard.ApprovedDocumentM), problem => problem.Rule.Contains("3.24g"));
     }
+    [Fact]
+    public void AnOutwardOpeningDoorByACornerKeepsItsLeadingEdge800FromIt()
+    {
+        // M4(3): the bedroom's door opening out into a landing 1300 wide, its leading edge 200 or so from the end wall, the study's door on that
+        // wall within 800 of the corner: 3.24e asks 800 - no 1500 turning circle fits outside it in 1300.
+        var (document, side, end, landing) = Landing(1300, "Single - 1000 x 2100", ClearanceStandard.ApprovedDocumentM3);
+        var type = document.FindType<DoorType>(side.TypeId)!;
+
+        // The bedroom run on east to the landing's end, over its door.
+        foreach (var wall in document.Walls.Where(wall => Math.Abs(wall.Start.Y - 1300 - 3000) < 1 || Math.Abs(wall.Start.X - 4000) < 1).ToList())
+        {
+            if (Math.Abs(wall.Start.X - 4000) < 1 && Math.Abs(wall.End.X - 4000) < 1) (wall.Start, wall.End) = (new Point2D(5062.5, wall.Start.Y), new Point2D(5062.5, wall.End.Y));
+            else if (Math.Abs(wall.End.X - 4000) < 1) wall.End = new Point2D(5062.5, wall.End.Y);
+        }
+
+        side.DistanceAlongWall = 62.5 + 5000 - 200 - type.Width / 2;
+        side.FlipHand = false;
+        if (Doors.RoomsBeside(document, side).Swing != landing) side.FlipFacing = !side.FlipFacing;
+        Assert.Same(landing, Doors.RoomsBeside(document, side).Swing);
+        bool Asked() => Doors.Problems(document, side, ClearanceStandard.ApprovedDocumentM3).Any(problem => problem.Rule.Contains("3.24e"));
+        Assert.True(Doors.Return(document, side, type)!.Value.Reach < 800);
+        var probe = Doors.Return(document, side, type)!.Value;
+        Assert.True(Asked(), $"return {probe.Reach} wall {(probe.Wall.Id == end.HostWallId ? "east" : $"({probe.Wall.Start.X:0},{probe.Wall.Start.Y:0})-({probe.Wall.End.X:0},{probe.Wall.End.Y:0})")} corner ({probe.Corner.X:0},{probe.Corner.Y:0}); corner {Doors.CornerProblem(document, side, type)}; rooms {Doors.RoomsBeside(document, side)}");
+        Assert.Contains(Doors.Problems(document, side, ClearanceStandard.ApprovedDocumentM3), problem => problem.Said.Contains("the study's door"));
+
+        // A turning circle put down outside it: met (Diagram 3.5C).
+        var circle = document.TypesOf<ComponentType>().First(each => each.Name == "Turning Circle - 1500");
+        var disc = new Component { TypeId = circle.Id, TypeKind = circle.Kind, LevelId = document.Levels[0].Id, Location = new Point2D(4300, 700) };
+        document.Add(disc);
+        Assert.False(Asked());
+        document.Remove(disc);
+
+        // Its leading edge 800 from the corner: met (Diagram 3.5A); hung to open into the bedroom instead: not an outward opening door into the hall.
+        side.DistanceAlongWall = 62.5 + 5000 - 850 - type.Width / 2;
+        Assert.False(Asked());
+        side.DistanceAlongWall = 62.5 + 5000 - 200 - type.Width / 2;
+        side.FlipFacing = !side.FlipFacing;
+        Assert.False(Asked());
+
+        // Under M4(2), not asked.
+        side.FlipFacing = !side.FlipFacing;
+        document.ProjectInformation.ClearanceStandard = ClearanceStandard.ApprovedDocumentM;
+        Assert.DoesNotContain(Doors.Problems(document, side, ClearanceStandard.ApprovedDocumentM), problem => problem.Rule.Contains("3.24e"));
+        _ = end;
+    }
+    [Fact]
+    public void AnObstructionIsNotWhereTheHallTurns()
+    {
+        // An L-shaped hall 1200 wide: along x to 5000, then up the west side to 4000; a door at each end.
+        var document = BimDocument.CreateDefault();
+        var level = document.Levels[0].Id;
+        var partition = document.TypesOf<WallType>().First(type => type.Name == "Interior - Partition 125mm");
+        Wall Wall(double x1, double y1, double x2, double y2)
+        {
+            var wall = new Wall { Start = new Point2D(x1, y1), End = new Point2D(x2, y2), TypeId = partition.Id, LevelId = level, UnconnectedHeight = 2400 };
+            document.Add(wall);
+            return wall;
+        }
+
+        const double h = 62.5;
+        Wall(-h, -h, 5000 + h, -h);
+        var east = Wall(5000 + h, -h, 5000 + h, 1200 + h);
+        Wall(5000 + h, 1200 + h, 1200 + h, 1200 + h);
+        Wall(1200 + h, 1200 + h, 1200 + h, 4000 + h);
+        var north = Wall(1200 + h, 4000 + h, -h, 4000 + h);
+        Wall(-h, 4000 + h, -h, -h);
+        var single = document.TypesOf<DoorType>().First(type => type.Name == "Single - 900 x 2100");
+        document.Add(new Door { TypeId = single.Id, LevelId = level, HostWallId = east.Id, DistanceAlongWall = 600 + h });
+        document.Add(new Door { TypeId = single.Id, LevelId = level, HostWallId = north.Id, DistanceAlongWall = 600 + h });
+        var hall = new Room { LevelId = level, Location = new Point2D(600, 600), Name = "Hall" };
+        document.Add(hall);
+        Assert.DoesNotContain("asks", Circulation.Verdict(document, hall));
+
+        // A radiator on the wall along the turn, its end 110 from the inside corner: at a change of direction (2.22b, Diagram 2.3).
+        var radiator = document.TypesOf<ComponentType>().First(each => each.Name == "Radiator - 600 x 1000");
+        var piece = new Component { TypeId = radiator.Id, TypeKind = radiator.Kind, LevelId = level, Location = new Point2D(1200 + 110 + 500, 1200 - 50), Elevation = 150 };
+        document.Add(piece);
+        Assert.Contains("asks no localised obstruction at a change of direction - the radiator stands 110 from the inside corner where the hall turns", Circulation.Verdict(document, hall));
+
+        // Moved 1 m along: clear of the turn.
+        piece.Location = new Point2D(piece.Location.X + 1000, piece.Location.Y);
+        Assert.DoesNotContain("change of direction", Circulation.Verdict(document, hall));
+    }
 }

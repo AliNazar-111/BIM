@@ -28,9 +28,10 @@ namespace BIMDesigner.Core.Architecture;
 /// Round 159: M4(3)'s halls 1050, 900 past a localised obstruction (3.24a, c, Diagram 3.4); and in all three, an obstruction no longer than
 /// 2 m, not opposite or close to a doorway - over the 1500 of hall centred on it, Diagrams 2.3 and 3.4 shading it (1.15b, 2.22b, 3.24c).
 ///
+/// Round 162: nor at a change of direction - within 300 of an inside corner where the hall turns, as Diagram 2.3 shades it.
+///
 /// Not done: a block of flats - a flat's entrance off the common parts, and its own entrance storey - and two or more houses drawn in one
-/// model, which are taken together; an obstruction at a change of direction (1.15b, 2.22b, 3.24c); the threshold itself (1.14b), not
-/// drawn. An extension is left out, as Volume 1 is (0.2).
+/// model, which are taken together; the threshold itself (1.14b), not drawn. An extension is left out, as Volume 1 is (0.2).
 /// </summary>
 public static class Visitable
 {
@@ -467,6 +468,8 @@ public static class Visitable
                 said.Add($"Approved Document M ({rule}) asks a localised obstruction no longer than 2 m - {name} is {longest:0} long");
             if (DoorwayNear(document, room, footprint) is { } doorway)
                 said.Add($"Approved Document M ({rule}) asks no localised obstruction opposite or close to a doorway - {name} stands in front of {doorway}");
+            else if (AtTurn(document, room, footprint) is { } apart)
+                said.Add($"Approved Document M ({rule}) asks no localised obstruction at a change of direction - {name} stands {apart:0} from the inside corner where the hall turns");
         }
 
         return $"Hall: {string.Join("; ", said)}";
@@ -483,6 +486,33 @@ public static class Visitable
         foreach (var piece in document.All<Component>().Where(piece => piece.LevelId == hall.LevelId && Polygon2D.Contains(boundary.Polygon, piece.Location)))
             if (document.FindType<ComponentType>(piece.TypeId) is { Depth: >= 100 } type && ComponentHosting.BaseElevation(document, piece, type) - floorAt < 2000)
                 yield return ($"the {type.Name.Split(" - ")[0].ToLowerInvariant()}", ComponentModel.Footprint(type, ComponentModel.FrameOf(piece, 0)));
+    }
+
+    /// <summary>
+    /// How close something standing in a hall comes to an inside corner where the hall turns - a corner of its outline turning back into it,
+    /// both its sides 300 long at least, not a jog where walls of two thicknesses meet - when within 300 of it, as Diagram 2.3 shades the
+    /// corners of a change of direction (round 162); none where it stands clear of them.
+    /// </summary>
+    private static double? AtTurn(BimDocument document, Room hall, IReadOnlyList<Point2D> footprint)
+    {
+        if (hall.GetBoundary(document) is not { IsEnclosed: true } boundary || boundary.Polygon.Count < 4) return null;
+        var outline = boundary.Polygon;
+        var turning = Math.Sign(Polygon2D.SignedArea(outline));
+        double? closest = null;
+        for (var i = 0; i < outline.Count; i++)
+        {
+            var (before, at, after) = (outline[(i + outline.Count - 1) % outline.Count], outline[i], outline[(i + 1) % outline.Count]);
+            if (before.DistanceTo(at) < 300 || at.DistanceTo(after) < 300) continue;
+            var cross = (at - before).Cross(after - at);
+            if (Math.Sign(cross) == turning || Math.Abs(cross) < 1e-6) continue;
+
+            var apart = Polygon2D.Contains(footprint, at)
+                ? 0
+                : Enumerable.Range(0, footprint.Count).Min(j => Line2D.DistanceFromSegment(at, footprint[j], footprint[(j + 1) % footprint.Count]));
+            if (apart <= 300 + 0.5 && (closest is null || apart < closest)) closest = apart;
+        }
+
+        return closest;
     }
 
     /// <summary>

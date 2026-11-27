@@ -2326,6 +2326,12 @@ public sealed class BimDocument
 
             // A wall light with its middle at 1700, as lights are put up - 1.6 to 1.8 m - and LED
             // lamps in all of them, past the 75 lumens a watt Approved Document L asks for.
+            new ComponentType("Wall Light - Outdoor, Dusk to Dawn", BuiltInCategory.LightingFixtures, ComponentForm.WallLight, 250, 120, 250)
+            {
+                TypeMark = "L1E", Colour = white, Cost = 95m, Efficacy = 90, Load = 9, Lumens = 800, AutoSwitched = true,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 1675,
+                Description = "Diffused bulkhead light for outside an entrance, switched by a photocell from dusk to dawn (Approved Document M 2.14c, 2.20c)"
+            },
             new ComponentType("Wall Light", BuiltInCategory.LightingFixtures, ComponentForm.WallLight, 300, 140, 320)
             {
                 TypeMark = "L1", Colour = white, Cost = 75m, Efficacy = 90, Load = 7, Lumens = 630,

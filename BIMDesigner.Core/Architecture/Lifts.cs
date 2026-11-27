@@ -17,7 +17,11 @@ namespace BIMDesigner.Core.Architecture;
 ///
 /// Not done: a straight route 900 wide in place of the 1500 square (3.28a); call buttons and car controls (3.28b to d, 3.34g, h, 3.43d to f);
 /// mirrors (3.34d), handrails (3.28f), timing, signs, announcements and glass (3.34f, i to k); evacuation lifts (3.34l); wheelchair platform
-/// stairlifts (3.44 to 3.49); a block of flats' lifts (Approved Document M Volume 1).
+/// stairlifts (3.44 to 3.49).
+///
+/// A block of flats' lifts by Approved Document M Volume 1 (round 163): a car 900 wide and 1250 deep under M4(1) (1.11d), 1100 by 1400 - a type
+/// 2 lift's - under M4(2) and M4(3) (2.16b, c, 3.16b, c); doors 800 clear (1.11c, 2.16d, 3.16d); a clear landing 1500 by 1500 in front of the
+/// lift door at every floor (1.11a, 2.16a, 3.16a).
 /// </summary>
 public static class Lifts
 {
@@ -90,7 +94,8 @@ public static class Lifts
     /// <summary>What a lift falls short of: serving every storey, its car, its landing doors, and the space in front of each.</summary>
     public static IReadOnlyList<PlacementProblem> Problems(BimDocument document, Component piece, ClearanceStandard standard)
     {
-        if (!Circulation.Applies(document) || Of(document).FirstOrDefault(lift => lift.Piece == piece) is not { } lift) return Array.Empty<PlacementProblem>();
+        if (Of(document).FirstOrDefault(lift => lift.Piece == piece) is not { } lift) return Array.Empty<PlacementProblem>();
+        if (!Circulation.Applies(document)) return Entrances.Block(document) ? Homes(document, lift, standard) : Array.Empty<PlacementProblem>();
         var problems = new List<PlacementProblem>();
         void Add(string said, string rule, IReadOnlyList<Point2D>? outline = null) => problems.Add(new PlacementProblem(piece, said, rule, outline ?? lift.Car));
         var what = lift.Platform ? "lifting platform" : "lift";
@@ -145,6 +150,42 @@ public static class Lifts
         // Its well: enclosed, a protected shaft through compartment floors, lobbied in a basement (Approved Document B Volume 2 5.34 to 5.40, round 114).
         if (!standard.IsUs())
             foreach (var (said, rule) in EscapeRoutes.LiftProblems(document, lift)) Add(said, rule);
+
+        return problems;
+    }
+
+    /// <summary>
+    /// A block of flats' lift, by Approved Document M Volume 1 (round 163): its car 900 by 1250 under M4(1), 1100 by 1400 under M4(2) and M4(3);
+    /// its doors 800 clear; 1500 by 1500 clear in front of its door at every floor.
+    /// </summary>
+    private static IReadOnlyList<PlacementProblem> Homes(BimDocument document, Placed lift, ClearanceStandard standard)
+    {
+        if (standard != document.ProjectInformation.ClearanceStandard) return Array.Empty<PlacementProblem>();
+        var problems = new List<PlacementProblem>();
+        void Add(string said, string rule, IReadOnlyList<Point2D>? outline = null) => problems.Add(new PlacementProblem(lift.Piece, said, rule, outline ?? lift.Car));
+        var m1 = standard == ClearanceStandard.ApprovedDocumentM1;
+        var paragraph = m1 ? "M4(1) 1.11" : standard == ClearanceStandard.ApprovedDocumentM3 ? "M4(3) 3.16" : "M4(2) 2.16";
+        var (wide, deep) = m1 ? (900.0, 1250.0) : (CarWidth, CarDepth);
+        if (lift.Type.Width < wide - 0.5 || lift.Type.Depth < deep - 0.5)
+            Add($"its car is {lift.Type.Width:0} wide and {lift.Type.Depth:0} deep.",
+                $"Approved Document M ({paragraph}{(m1 ? "d" : "b, c")}) asks a lift giving access to the dwellings for a car {wide:0} wide and {deep:0} deep inside at least{(m1 ? ", suitable for a wheelchair user (1.10)" : " - a type 2 lift's, BS EN 81-70")}.");
+        if (lift.Landings.Count == 0)
+        {
+            Add("it has no landing door - none in a wall within 700 of its car.",
+                $"Approved Document M ({paragraph}) asks for a lift that gives access to the dwellings: a landing door in its shaft's wall by the car on each storey it serves.");
+            return problems;
+        }
+
+        foreach (var (door, level) in lift.Landings)
+        {
+            if (document.FindType<DoorType>(door.TypeId) is not { } doorType) continue;
+            var clear = Doors.ClearWidth(doorType);
+            if (clear < DoorClear - 0.5)
+                Add($"its landing door on the {level.Name} gives {clear:0} clear.", $"Approved Document M ({paragraph}{(m1 ? "c" : "d")}) asks a lift's doors {DoorClear:0} clear at least.");
+            if (Space(document, lift, door) is { } space && space.In.Count > 0)
+                Add($"the 1500 x 1500 in front of its landing door on the {level.Name} has {string.Join(", ", space.In)} in it.",
+                    $"Approved Document M ({paragraph}a) asks for a clear landing {Landing:0} long and {Landing:0} wide directly in front of the lift door at every floor level.", space.Outline);
+        }
 
         return problems;
     }

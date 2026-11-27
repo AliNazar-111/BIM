@@ -637,6 +637,12 @@ public sealed class ComponentType : ElementType
     /// <summary>For a light, the light it gives, lumens - the fitting's own, from its maker's data or its photometric file.</summary>
     public double Lumens { get; set; }
 
+    /// <summary>
+    /// For a light, whether it is switched on by itself - by a dusk to dawn timer or by detecting motion - as Approved Document M asks of the
+    /// light at a home's entrance (2.14c, 2.20c, 3.14c, 3.22c; round 163).
+    /// </summary>
+    public bool AutoSwitched { get; set; }
+
     /// <summary>For a light, how it spreads its light.</summary>
     public LightDistribution Distribution { get; set; }
 
@@ -706,6 +712,7 @@ public sealed class ComponentType : ElementType
         Bunded = Bunded,
         Outlets = Outlets,
         Tethered = Tethered,
+        AutoSwitched = AutoSwitched,
         SeatHeight = SeatHeight,
         KneeRecess = KneeRecess
     }.WithSolids(Solids));
@@ -768,6 +775,7 @@ public sealed class ComponentType : ElementType
         {
             yield return ParameterValue.BindValidated(ComponentTypeParameters.Efficacy, () => Efficacy, v => { if (v < 0) return false; Efficacy = v; return true; });
             yield return ParameterValue.BindValidated(ComponentTypeParameters.Lumens, () => Lumens, v => { if (v < 0) return false; Lumens = v; return true; });
+            yield return ParameterValue.Bind(ComponentTypeParameters.AutoSwitched, () => AutoSwitched, v => AutoSwitched = v);
             yield return ParameterValue.BindChoice(
                 ComponentTypeParameters.Distribution,
                 () => EnumText.Humanise(Distribution),
@@ -1461,6 +1469,10 @@ public static class ComponentTypeParameters
 
     public static readonly ParameterDefinition Lumens =
         new("Light Output (lm)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    /// <summary>A light switched on by a dusk to dawn timer or by detecting motion (Approved Document M 2.14c, 2.20c, 3.14c, 3.22c).</summary>
+    public static readonly ParameterDefinition AutoSwitched =
+        new("Dusk to Dawn or Motion", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
 
     public static readonly ParameterDefinition Distribution =
         new("Light Distribution", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);

@@ -223,6 +223,14 @@ public class DoorRulesTests
         var (document, walls) = Box();
         var front = Hang(document, walls[0], "Front Door - 1000 x 2100", 2000, "D1");
         Assert.Equal(860, Doors.ClearWidth(Type(document, "Front Door - 1000 x 2100")));
+
+        // As the front door, it wants a light outside it switched on by itself (2.20c, round 163): the library's outdoor light beside it.
+        Assert.Single(Doors.Problems(document, front, ClearanceStandard.ApprovedDocumentM), problem => problem.Rule.Contains("2.20c"));
+        var wall = walls[0];
+        var half = document.GetWallType(wall)!.Structure.TotalWidth / 2;
+        var outdoor = document.TypesOf<ComponentType>().First(type => type.Name == "Wall Light - Outdoor, Dusk to Dawn");
+        var beside = wall.PointAt(document.GetWallType(wall)!.Structure, 2000 + 800, 0) + BIMDesigner.Core.Architecture.SpaceSeparation.Outward(document, wall) * (half + 60);
+        document.Add(new Component { TypeId = outdoor.Id, TypeKind = outdoor.Kind, LevelId = wall.LevelId, Location = beside, Elevation = 1700 });
         Assert.Empty(Doors.Problems(document, front, ClearanceStandard.ApprovedDocumentM));
 
         var fire = Type(document, "Fire Door FD30S - 900 x 2100");

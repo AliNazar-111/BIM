@@ -314,6 +314,9 @@ public static class Warnings
         // A house's WC on the storey visitors use (Approved Document M, M4(1) 1.17a, M4(2) 2.27a, round 148).
         foreach (var problem in Visitable.Problems(document))
             yield return For(problem.Element, Named(problem.Element, problem.Said));
+        // A block's flats entered on storeys no lift stops at (Approved Document M 2.6, 3.7, round 163).
+        foreach (var problem in Entrances.Problems(document))
+            yield return For(problem.Element, Named(problem.Element, problem.Said));
         // A conversion's openings, a quarter of its floor at most (Approved Document L 11.7c, round 145).
         foreach (var problem in Conversion.Problems(document))
             yield return For(problem.Room, Named(problem.Room, problem.Said));

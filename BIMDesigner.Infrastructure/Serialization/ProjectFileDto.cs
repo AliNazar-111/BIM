@@ -1247,6 +1247,9 @@ internal sealed class ComponentTypeDto
     public int? Outlets { get; set; }
     public bool? Tethered { get; set; }
 
+    /// <summary>A light switched by a dusk to dawn timer or by motion (Approved Document M 2.14c); none in a file from before.</summary>
+    public bool? AutoSwitched { get; set; }
+
     /// <summary>A WC's seat height; none in a file from before, or where it is taken from its size.</summary>
     public double? SeatHeight { get; set; }
 

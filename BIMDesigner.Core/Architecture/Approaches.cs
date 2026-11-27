@@ -194,19 +194,29 @@ public static class Approaches
         // A visitable dwelling's: M4(1) asks no landing or cover at the door - its width and threshold only (1.14, round 148).
         if (standard == ClearanceStandard.ApprovedDocumentM1) return Array.Empty<(string, string)>();
 
+        // A block's principal communal entrance: 1500 square, covered 1200 wide and 900 deep - 1200 by 1200 for a wheelchair user (2.14a, b,
+        // 3.14a, b, round 163). Clear of the door's swing there, and at a wheelchair user's private entrance (3.22a).
         var wheelchair = standard == ClearanceStandard.ApprovedDocumentM3;
-        var (size, coverWidth, coverDepth, paragraph) = wheelchair ? (1500.0, 1200.0, 1200.0, "M4(3) 3.22") : (1200.0, 900.0, 600.0, "M4(2) 2.20");
+        var communal = door == Entrances.CommunalEntrance(document);
+        var (size, coverWidth, coverDepth, paragraph) = (communal, wheelchair) switch
+        {
+            (true, true) => (1500.0, 1200.0, 1200.0, "M4(3) 3.14a, b"),
+            (true, false) => (1500.0, 1200.0, 900.0, "M4(2) 2.14a, b"),
+            (false, true) => (1500.0, 1200.0, 1200.0, "M4(3) 3.22a, b"),
+            _ => (1200.0, 900.0, 600.0, "M4(2) 2.20a, b")
+        };
         var outward = SpaceSeparation.Outward(document, wall);
         var face = wall.PointAt(wallType.Structure, door.DistanceAlongWall, 0) + outward * (wallType.Structure.TotalWidth / 2);
-        var landing = InFront(face, outward, size, size);
+        var swingsOut = (communal || wheelchair) && Doors.RoomsBeside(document, door) is (null, not null);
+        var landing = InFront(face, outward, size, size + (swingsOut ? door.WidthOf(document.FindType<DoorType>(door.TypeId)) : 0));
         var problems = new List<(string, string)>();
 
         // Level: the ground under it, or the paving or deck laid there.
         var probe = new GroundRegion { LevelId = wall.LevelId };
         probe.SetBoundary(landing);
         if (GroundRegions.Steepest(document, probe) is { } steepest && steepest > Level + 1e-6)
-            problems.Add(($"the ground outside it falls 1:{1 / steepest:0.#} where its landing should be.",
-                $"Approved Document M ({paragraph}) asks for a level landing {size:0} square outside the entrance - no steeper than 1:60."));
+            problems.Add(($"the ground outside it falls 1:{1 / steepest:0.#} where its landing should be{(swingsOut ? $", {size:0} beyond its swing" : string.Empty)}.",
+                $"Approved Document M ({paragraph}) asks for a level landing {size:0} square outside the entrance{(communal || wheelchair ? ", clear of the swing of any door" : string.Empty)} - no steeper than 1:60."));
 
         // Covered: a roof or floor over it, a canopy or porch, over the width and depth asked.
         var head = wall.GetBaseElevation(document) + door.SillHeight + door.HeightOf(document.FindType<DoorType>(door.TypeId));

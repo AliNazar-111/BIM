@@ -133,13 +133,20 @@ public static class Doors
     /// Its following edge's - its hinge jamb's, on the side it opens away from, as M4(3)'s Diagram
     /// 3.4 draws it (round 159) - where asked.
     /// </summary>
-    public static double? Nib(BimDocument document, Door door, DoorType type, bool following = false)
+    public static double? Nib(BimDocument document, Door door, DoorType type, bool following = false) =>
+        Return(document, door, type, following)?.Reach;
+
+    /// <summary>
+    /// The wall that returns beside a door's leading edge - or its following edge - on the side the nib is measured: how far along the face
+    /// it is, the wall, and the corner, the point on the door's wall face where it meets it; null where none returns within 1 m.
+    /// </summary>
+    public static (double Reach, Wall Wall, Point2D Corner)? Return(BimDocument document, Door door, DoorType type, bool following = false)
     {
         if (document.Find<Wall>(door.HostWallId) is not { } host || document.GetWallType(host) is not { } hostType) return null;
 
         var others = document.Walls
             .Where(wall => wall != host && wall.LevelId == host.LevelId && document.GetWallType(wall) is { } t && t.Structure.TotalWidth > 0)
-            .Select(wall => CurtainGeometry.Band(wall, document.GetWallType(wall)!, 0, wall.Length, document.GetWallType(wall)!.Structure.TotalWidth / 2, -document.GetWallType(wall)!.Structure.TotalWidth / 2))
+            .Select(wall => (Wall: wall, Band: CurtainGeometry.Band(wall, document.GetWallType(wall)!, 0, wall.Length, document.GetWallType(wall)!.Structure.TotalWidth / 2, -document.GetWallType(wall)!.Structure.TotalWidth / 2)))
             .ToList();
 
         var (from, to) = door.GetSpan(type);
@@ -147,10 +154,139 @@ public static class Doors
         if (following) (latch, away) = door.FlipHand ? (to, 1.0) : (from, -1.0);
         var face = (door.FlipFacing ? -1 : 1) * (following ? -1 : 1) * (hostType.Structure.TotalWidth / 2 + 10);
         for (var reach = 0.0; reach <= 1000; reach += 5)
-            if (others.Any(band => Polygon2D.Contains(band, host.PointAt(hostType.Structure, latch + away * reach, face))))
-                return reach;
+        {
+            var at = host.PointAt(hostType.Structure, latch + away * reach, face);
+            foreach (var (wall, band) in others)
+                if (Polygon2D.Contains(band, at))
+                    return (reach, wall, at);
+        }
 
         return null;
+    }
+
+    /// <summary>
+    /// A wheelchair user dwelling's door opening outwards into a hall close to a corner, another door on the return wall within 800 of that
+    /// corner: its leading edge 800 from the corner, unless a 1500 turning circle fits immediately outside it (M4(3) 3.24e, Diagram 3.5,
+    /// round 161) - what it falls short of, said; none where it meets it or the rule does not reach it.
+    /// </summary>
+    public static (string Said, string Rule)? CornerProblem(BimDocument document, Door door, DoorType type)
+    {
+        var (swing, other) = RoomsBeside(document, door);
+        if (swing is null || other is null || !Visitable.IsHall(swing) || Visitable.IsHall(other)) return null;
+        if (Return(document, door, type) is not var (reach, wall, corner) || reach >= 800 - 0.5) return null;
+        if (document.GetWallType(wall) is not { } wallType || wall.Length < 1) return null;
+
+        // Another door on the return wall within 800 of the corner, measured along that wall to its nearer jamb.
+        var way = (wall.End - wall.Start) / wall.Length;
+        var near = document.All<Door>()
+            .Where(each => each != door && each.HostWallId == wall.Id && document.FindType<DoorType>(each.TypeId) is not null)
+            .Select(each =>
+            {
+                var (a, b) = each.GetSpan(document.FindType<DoorType>(each.TypeId)!);
+                var apart = new[] { a, b }.Min(at => Math.Abs((wall.PointAt(wallType.Structure, at, 0) - corner).Dot(way)));
+                return (Door: each, Apart: apart);
+            })
+            .Where(entry => entry.Apart <= 800 + 0.5)
+            .OrderBy(entry => entry.Apart)
+            .FirstOrDefault();
+        if (near.Door is null) return null;
+
+        // A 1500 turning circle immediately outside the door: one put down there, or room in the hall for one in front of it.
+        if (TurningRoom(document, door, type, swing)) return null;
+        var beyond = RoomsBeside(document, near.Door) is var (s, o) ? (s == swing ? o : s) : null;
+        return ($"its leading edge is {reach:0} from the corner, {(beyond is null ? "another door" : $"the {beyond.Name.ToLowerInvariant()}'s door")} {near.Apart:0} from it on the return wall.",
+            "Approved Document M (M4(3) 3.24e, Diagram 3.5) asks an outward opening door close to a corner, another door within 800 of it on the return wall, to have its leading edge 800 from the corner - or a 1500 turning circle immediately outside it.");
+    }
+
+    /// <summary>
+    /// How far out from a door's face the width a nib makes beside its leading edge - or its following edge - stays clear of walls, which
+    /// Approved Document M asks kept for 1200, 1500 or 1800 beyond it (2.14f, 2.20f, 3.14g, h, 3.22e, g; round 163): a strip so wide beside
+    /// the edge, on the side the nib is measured, sampled every 50 out to so far; null where it is clear all the way.
+    /// </summary>
+    public static double? NibKept(BimDocument document, Door door, DoorType type, double nib, double length, bool following = false)
+    {
+        if (document.Find<Wall>(door.HostWallId) is not { } host || document.GetWallType(host) is not { } hostType) return null;
+        var bands = document.Walls
+            .Where(wall => wall != host && wall.LevelId == host.LevelId && document.GetWallType(wall) is { } t && t.Structure.TotalWidth > 0)
+            .Select(wall => CurtainGeometry.Band(wall, document.GetWallType(wall)!, 0, wall.Length, document.GetWallType(wall)!.Structure.TotalWidth / 2, -document.GetWallType(wall)!.Structure.TotalWidth / 2))
+            .ToList();
+
+        var (from, to) = door.GetSpan(type);
+        var (edge, away) = door.FlipHand ? (from, -1.0) : (to, 1.0);
+        if (following) (edge, away) = door.FlipHand ? (to, 1.0) : (from, -1.0);
+        var side = (door.FlipFacing ? -1 : 1) * (following ? -1 : 1);
+        var half = hostType.Structure.TotalWidth / 2;
+        var outs = new List<double>();
+        for (var d = 10.0; d < length - 10; d += 50) outs.Add(d);
+        outs.Add(length - 10);
+        var across = new[] { 10.0, nib / 4, nib / 2, 3 * nib / 4, nib - 10 };
+        bool Blocked(double d) => across.Any(r => bands.Any(band => Polygon2D.Contains(band, host.PointAt(hostType.Structure, edge + away * r, side * (half + d)))));
+        var clear = 0.0;
+        foreach (var d in outs)
+        {
+            if (!Blocked(d))
+            {
+                clear = d;
+                continue;
+            }
+
+            // Where between the last clear sample and this one the wall begins, to the millimetre.
+            var (low, high) = (clear, d);
+            while (high - low > 1)
+            {
+                var middle = (low + high) / 2;
+                if (Blocked(middle)) high = middle;
+                else low = middle;
+            }
+
+            return Math.Round(low);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// How deep a door's reveal is on the side it opens to - from its leaf's face closed to the wall's face there - its frame set in the middle
+    /// of the wall's thickness and the leaf on that side of it, as it is drawn, mm (Approved Document M 2.14g, 2.20g, 3.14i, 3.22h).
+    /// </summary>
+    public static double? Reveal(BimDocument document, Door door, DoorType type)
+    {
+        if (document.Find<Wall>(door.HostWallId) is not { } wall || document.GetWallType(wall) is not { } wallType) return null;
+        var width = wallType.Structure.TotalWidth;
+        var frame = Math.Clamp(type.Thickness > 0 ? type.Thickness : 100, 20, Math.Max(width, 20));
+        return Math.Max(0, width / 2 - frame / 2);
+    }
+
+    /// <summary>
+    /// Whether a 1500 turning circle fits immediately outside a door, in the hall it opens into - or inside an entrance, in the room it opens
+    /// into (3.14d, 3.22d): one put down there, or room for one.
+    /// </summary>
+    public static bool TurningRoom(BimDocument document, Door door, DoorType type, Room hall)
+    {
+        if (document.Find<Wall>(door.HostWallId) is not { } wall || document.GetWallType(wall) is not { } wallType) return false;
+        if (hall.GetBoundary(document) is not { IsEnclosed: true } boundary || boundary.Polygon.Count < 3) return false;
+        var outline = boundary.Polygon;
+        var half = wallType.Structure.TotalWidth / 2;
+        var middle = wall.PointAt(wallType.Structure, door.DistanceAlongWall, 0);
+        var normal = (wall.PointAt(wallType.Structure, door.DistanceAlongWall, half + 150) - middle).NormalisedOrDefault(Vector2D.UnitX);
+        if (!Polygon2D.Contains(outline, middle + normal * (half + 150))) normal = new Vector2D(-normal.X, -normal.Y);
+        var along = new Vector2D(-normal.Y, normal.X);
+        var width = door.WidthOf(type);
+
+        // One put down: a turning circle whose disc reaches to within 100 of the door's face.
+        if (document.All<Component>().Any(piece => piece.LevelId == hall.LevelId && document.FindType<ComponentType>(piece.TypeId) is { Form: ComponentForm.TurningCircle } circle
+                && Polygon2D.Contains(outline, piece.Location) && Line2D.DistanceFromSegment(piece.Location, middle + normal * half - along * width / 2, middle + normal * half + along * width / 2) <= circle.Width / 2 + 100))
+            return true;
+
+        // Room for one: a centre 750 out from the door's face, somewhere across its width, 750 clear of the hall's sides.
+        var edges = Enumerable.Range(0, outline.Count).Select(i => (outline[i], outline[(i + 1) % outline.Count])).ToList();
+        for (var t = -width / 2; t <= width / 2 + 1; t += 50)
+        {
+            var centre = middle + normal * (half + 760) + along * t;
+            if (Polygon2D.Contains(outline, centre) && edges.Min(edge => Line2D.DistanceFromSegment(centre, edge.Item1, edge.Item2)) >= 750 - 1) return true;
+        }
+
+        return false;
     }
 
     /// <summary>Whether a door is a cupboard's - an airing, meter or store cupboard's, a riser's - which M4's halls and doors leave out (Note 1).</summary>
@@ -176,11 +312,15 @@ public static class Doors
         var swings = type.Operation is DoorOperation.Swing or DoorOperation.DoubleSwing;
         var pair = type.Operation == DoorOperation.DoubleSwing || type.LeafCount >= 2;
 
-        // Wide enough: a dwelling's by M4, a building's other than a dwelling by Approved Document M Volume 2's Table 2 (round 106, below).
+        // Wide enough: a dwelling's by M4, a building's other than a dwelling by Approved Document M Volume 2's Table 2 (round 106, below). A
+        // block's communal entrance and doors, and a dwelling's principal private entrance, are Entrances' (round 163).
         var homes = !Circulation.Applies(document);
+        var own = homes && Entrances.RoleOf(document, door) != Entrances.Role.None;
         if (homes)
         switch (standard)
         {
+            case ClearanceStandard.ApprovedDocumentM when own:
+                break;
             case ClearanceStandard.ApprovedDocumentM when external && clear < 850 - 0.5:
                 Add($"it gives {clear:0} clear{(pair ? " through its main leaf" : string.Empty)}.",
                     "Approved Document M (M4(2) 2.20d-e, 2.21) asks for 850 clear through an external door - a pair's main leaf.");
@@ -196,7 +336,7 @@ public static class Doors
                     "Approved Document M (M4(2) 2.22a, c, Table 2.1) asks for a hall or landing 900 clear at least, and a door off it 750 clear approached head on; approached from the side, 750 off a hall 1200 wide, 775 off 1050, 800 off 900 - a radiator or fitting not opposite it (2.22b).") is var (narrowSaid, narrowRule):
                 Add(narrowSaid, narrowRule);
                 break;
-            case ClearanceStandard.ApprovedDocumentM3 when clear < 850 - 0.5:
+            case ClearanceStandard.ApprovedDocumentM3 when clear < 850 - 0.5 && !own:
                 Add($"it gives {clear:0} clear{(pair ? " through its main leaf" : string.Empty)}.",
                     "Approved Document M (M4(3) 3.22, 3.24) asks for 850 clear through every door, for a wheelchair user.");
                 break;
@@ -217,6 +357,10 @@ public static class Doors
         if (homes)
             foreach (var (said, rule) in Visitable.DoorProblems(document, door, type, standard)) Add(said, rule);
 
+        // A block's principal communal entrance and its other communal doors, a dwelling's principal private entrance (round 163).
+        if (homes)
+            foreach (var (said, rule) in Entrances.DoorProblems(document, door, type, standard)) Add(said, rule);
+
         // The US's egress door: one at least, side-hinged, 32 in by 78 in clear.
         if (standard.IsUs() && external && swings && !Kept(document, "egress door", () => document.All<Door>().Any(other =>
                 document.FindType<DoorType>(other.TypeId) is { Operation: DoorOperation.Swing or DoorOperation.DoubleSwing } otherType
@@ -229,17 +373,23 @@ public static class Doors
             .Where(other => document.FindType<DoorType>(other.TypeId) is { } otherType && External(document, other, otherType))
             .Select(other => document.Find<Wall>(other.HostWallId)?.LevelId)
             .FirstOrDefault());
-        var wantsNib = standard == ClearanceStandard.ApprovedDocumentM3 || standard == ClearanceStandard.ApprovedDocumentM && (external || wall.LevelId == entranceStorey);
-        if (homes && wantsNib && swings && !pair && Nib(document, door, type) is { } nib && nib < 300 - 0.5)
+        // In a block, a flat's entrance storey is the level of its door off the common parts (round 163).
+        var onEntranceStorey = Entrances.Block(document) ? Entrances.OnFlatsEntranceStorey(document, door) : wall.LevelId == entranceStorey;
+        var wantsNib = standard == ClearanceStandard.ApprovedDocumentM3 || standard == ClearanceStandard.ApprovedDocumentM && (external || onEntranceStorey);
+        if (homes && !own && wantsNib && swings && !pair && Nib(document, door, type) is { } nib && nib < 300 - 0.5)
             Add($"its leading edge is {nib:0} from the wall beside it.",
                 standard == ClearanceStandard.ApprovedDocumentM3
                     ? "Approved Document M (M4(3) 3.22, 3.24) asks for a 300 nib beside every door's leading edge, on the side it opens to."
                     : "Approved Document M (M4(2) 2.20f, 2.22) asks for a 300 nib beside the leading edge of an external door, and of every door on the entrance storey, on the side it opens to.");
 
         // And M4(3)'s 200 beside every door's following edge (3.24g, round 159).
-        if (homes && standard == ClearanceStandard.ApprovedDocumentM3 && swings && !pair && Nib(document, door, type, following: true) is { } tail && tail < 200 - 0.5)
+        if (homes && !own && standard == ClearanceStandard.ApprovedDocumentM3 && swings && !pair && Nib(document, door, type, following: true) is { } tail && tail < 200 - 0.5)
             Add($"its following edge is {tail:0} from the wall beside it.",
                 "Approved Document M (M4(3) 3.24g) asks for a 200 nib beside every door's following edge - its hinge side, on the side it opens away from.");
+
+        // And clear of a corner with another door near it on the return wall, or a turning circle outside it (3.24e, round 161).
+        if (homes && standard == ClearanceStandard.ApprovedDocumentM3 && swings && !pair && CornerProblem(document, door, type) is var (cornerSaid, cornerRule))
+            Add(cornerSaid, cornerRule);
 
         // In a building other than a dwelling: Table 2's widths, the space beside its leading edge, and not standing into a corridor (round 106).
         foreach (var (said, rule) in Circulation.Problems(document, door, type)) Add(said, rule);
